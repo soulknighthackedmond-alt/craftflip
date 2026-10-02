@@ -1,0 +1,30 @@
+services:
+  craftflip:
+    build: .
+    container_name: craftflip
+    restart: unless-stopped
+    ports:
+      - "8789:8789"
+    environment:
+      PORT: "8789"
+      DATA_DIR: /data
+      INDEX_TTL_SECONDS: "300"
+      FLIPS_TTL_SECONDS: "30"
+      DONUT_FEE_PERCENT: "0"
+      REQUEST_SPACING_SECONDS: "0.25"
+    volumes:
+      # flip history lives here; the recipe dataset is baked into the image
+      - craftflip-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8789/health',timeout=4)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  craftflip-data:

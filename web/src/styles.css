@@ -1,0 +1,662 @@
+/* craftflip — bill-of-materials ledger
+   Ink canvas, hairline rules, one accent. Nothing rounded, nothing glowing. */
+
+:root {
+  --ink: #101418;
+  --panel: #171c22;
+  --panel-2: #1b212a;
+  --hair: #252b33;
+  --hair-2: #333c47;
+  --text: #e7e4de;
+  --muted: #8a8f98;
+  --muted-dim: #646a73;
+  --profit: #f2b03d;
+  --loss: #c4553b;
+
+  --ui: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --gutter: 28px;
+  --row-h: 46px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; text-decoration: none; }
+
+/* every number in the app is monospaced, tabular, with a slashed zero */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: 'zero' 1, 'tnum' 1;
+}
+
+:focus-visible {
+  outline: 2px solid var(--profit);
+  outline-offset: 2px;
+}
+
+.shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 var(--gutter) 96px;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  border-bottom: 1px solid var(--hair);
+  padding: 22px 0 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-family: var(--ui);
+  font-stretch: 125%;
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.wordmark span { color: var(--profit); }
+
+.masthead .tagline {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+  flex: 1 1 260px;
+}
+
+/* the live strip: what the index is, and how old it is */
+.livestrip {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.pip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-stretch: 110%;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--profit);
+  flex: none;
+}
+
+.pip.degraded .dot { background: var(--loss); }
+
+.pip .v { color: var(--text); font-family: var(--mono); letter-spacing: 0; }
+
+/* ------------------------------------------------------------------ spread */
+
+/* The thesis: the market's current arbitrage surface, stated as three facts. */
+.spread {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: 1px solid var(--hair);
+}
+
+.spread div {
+  padding: 26px 0 24px;
+  border-right: 1px solid var(--hair);
+  padding-right: 24px;
+}
+
+.spread div:last-child { border-right: 0; }
+
+.spread .k {
+  font-size: 11px;
+  font-stretch: 118%;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.spread .v {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.spread .v.accent { color: var(--profit); }
+.spread .sub { color: var(--muted-dim); font-size: 12px; margin-top: 8px; }
+
+/* ----------------------------------------------------------------- controls */
+
+.controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--hair);
+  flex-wrap: wrap;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+
+.field label {
+  font-size: 10px;
+  font-stretch: 118%;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.field input, .field select {
+  background: var(--panel);
+  border: 1px solid var(--hair-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 10px;
+  min-width: 130px;
+  border-radius: 0;
+}
+
+.field input::placeholder { color: var(--muted-dim); }
+
+.field.grow { flex: 1 1 200px; }
+.field.grow input { width: 100%; }
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding-bottom: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input { accent-color: var(--profit); width: 14px; height: 14px; }
+
+.spacer { flex: 1 1 auto; }
+
+.count-line {
+  color: var(--muted);
+  font-size: 12px;
+  padding-bottom: 9px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- ledger */
+
+.ledger { border-bottom: 1px solid var(--hair); }
+
+.ledger-head,
+.row {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.7fr)   /* item      */
+    104px                  /* cost      */
+    104px                  /* sells for */
+    116px                  /* profit    */
+    148px                  /* margin    */
+    104px                  /* listed    */
+    62px;                  /* age       */
+  gap: 14px;
+  align-items: center;
+}
+
+.ledger-head {
+  height: 38px;
+  border-bottom: 1px solid var(--hair-2);
+  position: sticky;
+  top: 0;
+  background: var(--ink);
+  z-index: 3;
+}
+
+.ledger-head button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--ui);
+  font-size: 10px;
+  font-stretch: 118%;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ledger-head button:hover { color: var(--text); }
+.ledger-head button.on { color: var(--profit); }
+.ledger-head .l { text-align: left; }
+
+/* a row is a button that unfolds into its bill of materials */
+.flip { border-bottom: 1px solid var(--hair); }
+.flip:last-child { border-bottom: 0; }
+
+.row {
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  height: var(--row-h);
+  cursor: pointer;
+  color: var(--text);
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-size: 13.5px;
+}
+
+.row:hover { background: var(--panel); }
+.flip.open .row { background: var(--panel); }
+
+.row .item {
+  text-align: left;
+  font-family: var(--ui);
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.row .item .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the little caret that says "there is a grid behind this row" */
+.row .item .caret {
+  color: var(--muted-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  flex: none;
+  transition: transform 120ms ease;
+}
+
+.flip.open .row .item .caret { transform: rotate(90deg); color: var(--profit); }
+
+.row .profit.up { color: var(--profit); }
+.row .profit.down { color: var(--loss); }
+.row .muted { color: var(--muted); }
+.row .est { color: var(--muted-dim); font-size: 11px; margin-left: 4px; }
+
+/* ---------------------------------------------------------- margin ruler */
+
+.ruler { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+
+.ruler .track {
+  position: relative;
+  height: 3px;
+  width: 76px;
+  background: var(--hair-2);
+  flex: none;
+}
+
+.ruler .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--profit);
+}
+
+.ruler.down .fill { background: var(--loss); }
+.ruler .pc { min-width: 46px; text-align: right; }
+
+/* ------------------------------------------------------ bill of materials */
+
+.bom {
+  background: var(--panel);
+  border-top: 1px solid var(--hair-2);
+  padding: 22px 0 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) auto minmax(0, 1fr);
+  gap: 34px;
+  animation: unfold 180ms ease-out;
+}
+
+@keyframes unfold {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.bom h4 {
+  margin: 0 0 12px;
+  font-size: 10px;
+  font-stretch: 118%;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mat-list { display: flex; flex-direction: column; gap: 1px; }
+
+.mat {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 13px;
+  align-items: baseline;
+}
+
+.mat + .mat { border-top: 1px solid var(--hair); }
+.mat .n { color: var(--text); }
+.mat .n .via { color: var(--muted-dim); font-size: 11px; margin-left: 6px; }
+.mat .q { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.mat .s { font-family: var(--mono); font-variant-numeric: tabular-nums slashed-zero; }
+
+.mat-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--hair-2);
+  font-size: 12px;
+  font-stretch: 112%;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mat-total .num { color: var(--text); letter-spacing: 0; text-transform: none; }
+
+/* the real 3x3 craft grid */
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, 62px);
+  grid-template-rows: repeat(3, 62px);
+  gap: 3px;
+  background: var(--hair);
+  border: 1px solid var(--hair);
+  padding: 3px;
+}
+
+.cell {
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 5px 6px;
+  overflow: hidden;
+}
+
+.cell.empty {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ink) 0 4px,
+    #141920 4px 8px
+  );
+}
+
+/* a shapeless recipe's slots, same cells without the arrangement */
+.slot-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 240px;
+}
+
+.slot-tray .cell {
+  width: 62px;
+  height: 62px;
+  flex: none;
+}
+
+.cell .cn {
+  font-size: 9.5px;
+  line-height: 1.15;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell .cp {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+.cell.tagged .cn { color: var(--profit); }
+
+.grid-note {
+  font-size: 11px;
+  color: var(--muted-dim);
+  margin-top: 9px;
+  max-width: 200px;
+}
+
+/* the arithmetic, written out */
+.ledger-math { display: flex; flex-direction: column; gap: 9px; }
+
+.mline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.mline .k { color: var(--muted); }
+.mline .v { font-family: var(--mono); font-variant-numeric: tabular-nums slashed-zero; }
+.mline.total { border-bottom: 1px solid var(--hair-2); }
+.mline.total .v { font-size: 17px; }
+.mline.total.up .v { color: var(--profit); }
+.mline.total.down .v { color: var(--loss); }
+
+.bom-actions { display: flex; gap: 14px; margin-top: 4px; }
+
+.bom-actions a {
+  font-size: 11px;
+  font-stretch: 112%;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--profit);
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+}
+
+.bom-actions a:hover { border-bottom-color: var(--profit); }
+
+/* numbers flash once when they change */
+@keyframes flash {
+  0%   { color: var(--profit); }
+  100% { color: inherit; }
+}
+
+.flash { animation: flash 900ms ease-out; }
+
+/* -------------------------------------------------------------- states */
+
+.note {
+  padding: 44px 0;
+  border-bottom: 1px solid var(--hair);
+  color: var(--muted);
+  max-width: 62ch;
+}
+
+.note h3 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 15px;
+  font-stretch: 112%;
+  letter-spacing: 0.02em;
+}
+
+.note code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  padding: 1px 5px;
+}
+
+.skeleton { height: var(--row-h); border-bottom: 1px solid var(--hair); background: var(--panel); opacity: 0.35; }
+
+/* ---------------------------------------------------------- item detail */
+
+.backlink {
+  display: inline-block;
+  margin: 20px 0 0;
+  font-size: 11px;
+  font-stretch: 112%;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.backlink:hover { color: var(--profit); }
+
+.detail-head {
+  padding: 16px 0 20px;
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.detail-head h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.detail-head .id { color: var(--muted-dim); font-size: 11.5px; font-family: var(--mono); }
+
+.detail-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 340px);
+  gap: 44px;
+  padding-top: 26px;
+}
+
+.panel { border-top: 1px solid var(--hair-2); padding-top: 14px; margin-bottom: 30px; }
+.panel h4 {
+  margin: 0 0 14px;
+  font-size: 10px;
+  font-stretch: 118%;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sales { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+
+.sales th {
+  text-align: left;
+  font-size: 10px;
+  font-stretch: 112%;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  font-weight: 600;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.sales th.r, .sales td.r { text-align: right; }
+
+.sales td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hair);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+.sales td.n { font-family: var(--ui); }
+
+.spark { display: block; width: 100%; height: 120px; }
+.spark .line { fill: none; stroke: var(--profit); stroke-width: 1.5; }
+.spark .area { fill: rgba(242, 176, 61, 0.08); }
+.spark .axis { stroke: var(--hair-2); stroke-width: 1; }
+.spark .zero { stroke: var(--muted-dim); stroke-width: 1; stroke-dasharray: 3 3; }
+.spark .lbl { fill: var(--muted); font-size: 9px; font-family: var(--mono); }
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .bom { grid-template-columns: 1fr; gap: 26px; }
+  .detail-body { grid-template-columns: 1fr; gap: 26px; }
+  .spread { grid-template-columns: 1fr; }
+  .spread div { border-right: 0; border-bottom: 1px solid var(--hair); padding-right: 0; }
+  .spread div:last-child { border-bottom: 0; }
+}
+
+@media (max-width: 720px) {
+  :root { --gutter: 14px; }
+  .ledger-head { display: none; }
+
+  .row {
+    height: auto;
+    padding: 11px 0;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'item   profit'
+      'meta   meta';
+    row-gap: 6px;
+    align-items: baseline;
+  }
+
+  .row .item { grid-area: item; }
+  .row .profit { grid-area: profit; font-size: 15px; }
+  .row .cost, .row .revenue { display: none; }
+  .row .margin { grid-area: meta; justify-content: flex-start; }
+  .row .listed, .row .age { display: none; }
+
+  .ruler { justify-content: flex-start; }
+  .grid3 { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px); }
+  .masthead { padding-bottom: 12px; }
+  .livestrip { margin-left: 0; gap: 12px; }
+  .spread .v { font-size: 27px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+  .bom { animation: none; }
+}
