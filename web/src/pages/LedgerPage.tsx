@@ -13,6 +13,7 @@ export default function LedgerPage() {
   const [minMargin, setMinMargin] = useState('')
   const [profitableOnly, setProfitableOnly] = useState(true)
   const [buyableOnly, setBuyableOnly] = useState(false)
+  const [instasellOnly, setInstasellOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('profit')
 
   const all = data?.items ?? []
@@ -28,15 +29,20 @@ export default function LedgerPage() {
     if (mm !== null && Number.isFinite(mm)) out = out.filter((f) => f.margin >= mm)
     if (profitableOnly && mp === null) out = out.filter((f) => f.profit > 0)
     if (buyableOnly) out = out.filter((f) => f.actionable)
+    if (instasellOnly) out = out.filter((f) => (f.instasellProfit ?? 0) > 0)
 
     const key = (f: Flip) =>
-      sort === 'item' ? f.item : (f[sort] as number)
+      sort === 'item'
+        ? f.item
+        : sort === 'instasellProfit'
+          ? (f.instasellProfit ?? Number.NEGATIVE_INFINITY)
+          : (f[sort] as number)
     return [...out].sort((a, b) =>
       sort === 'item'
         ? String(key(a)).localeCompare(String(key(b)))
         : (key(b) as number) - (key(a) as number),
     )
-  }, [all, q, minProfit, minMargin, profitableOnly, buyableOnly, sort])
+  }, [all, q, minProfit, minMargin, profitableOnly, buyableOnly, instasellOnly, sort])
 
   // The spread states the whole market, not the filtered view. Margins from
   // estimated costs are excluded when there is anything genuinely buyable, since a
@@ -53,11 +59,21 @@ export default function LedgerPage() {
       (best, f) => (best === null || f.profit > best.profit ? f : best),
       null,
     )
+    // instasell: a row only counts when it still profits at the lowest price the
+    // output has actually sold for recently -- no estimate, no waiting for a buyer
+    const instasold = profitable.filter((f) => (f.instasellProfit ?? 0) > 0)
+    const instasoldBest = instasold.reduce<Flip | null>(
+      (best, f) =>
+        best === null || (f.instasellProfit ?? 0) > (best.instasellProfit ?? 0) ? f : best,
+      null,
+    )
     return {
       buyable: buyable.length,
       estimatedOnly: profitable.length - buyable.length,
       bestMargin,
       biggest,
+      instasellable: instasold.length,
+      instasoldBest,
       usingEstimated: buyable.length === 0,
     }
   }, [all])
@@ -110,6 +126,26 @@ export default function LedgerPage() {
             )}
           </div>
         </div>
+        <div>
+          <span className="k">Profitable if instasold</span>
+          <span className="v accent">
+            <Num value={spread.instasellable} format={(n) => count(n)} />
+          </span>
+          <div className="sub">
+            {spread.instasoldBest ? (
+              <>
+                best{' '}
+                <Link to={`/item/${spread.instasoldBest.item}`}>
+                  {titleise(spread.instasoldBest.item)}
+                </Link>{' '}
+                — {coinsExact(spread.instasoldBest.instasellProfit ?? 0)} at the lowest recent
+                sale
+              </>
+            ) : (
+              'nothing clears at the price these items actually sold for'
+            )}
+          </div>
+        </div>
       </section>
 
       <div className="controls">
@@ -159,6 +195,17 @@ export default function LedgerPage() {
             onChange={(e) => setBuyableOnly(e.target.checked)}
           />
           buyable now
+        </label>
+        <label
+          className="toggle"
+          title="only flips that still profit at the lowest price the output has actually sold for recently"
+        >
+          <input
+            type="checkbox"
+            checked={instasellOnly}
+            onChange={(e) => setInstasellOnly(e.target.checked)}
+          />
+          instasell ok
         </label>
         <span className="spacer" />
         <span className="count-line">

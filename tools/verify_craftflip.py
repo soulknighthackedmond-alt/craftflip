@@ -62,20 +62,32 @@ def main() -> int:
             print(f"     lastError={m['lastError']}")
         if not m.get("indexSize"):
             FAILED.append("market index is empty")
+        s = status.get("sales") or {}
+        print(f"     salesIndex={s.get('priced')} tracked={s.get('tracked')} "
+              f"basis={s.get('basis')!r} requests={s.get('requests')}")
+        if s.get("lastError"):
+            print(f"     sales lastError={s['lastError']}")
 
     crafts = call(base, "/api/crafts?limit=5")
     top_item = None
     if crafts:
         print(f"     {crafts.get('count')} rows; meta={json.dumps(crafts.get('meta', {}))[:160]}")
         for row in crafts.get("items", [])[:5]:
+            insta = row.get("instasellProfit")
             print(f"       {row['item']:<24} cost={row['cost']:>12,.0f} "
                   f"sale={row['revenue']:>12,.0f} profit={row['profit']:>12,.0f} "
-                  f"margin={row['margin']*100:>7.1f}%{'  est' if row['estimated'] else ''}")
+                  f"margin={row['margin']*100:>7.1f}%"
+                  f" instasell={'—' if insta is None else f'{insta:,.0f}'}"
+                  f"{'  est' if row['estimated'] else ''}")
         if crafts.get("items"):
             top_item = crafts["items"][0]["item"]
+            if "instasellProfit" not in crafts["items"][0]:
+                FAILED.append("/api/crafts rows are missing instasellProfit")
         else:
             FAILED.append("/api/crafts returned no rows")
 
+    # ranking by the sell-side number has to be an accepted sort
+    call(base, "/api/crafts?sort=instasellProfit&limit=3")
     call(base, "/api/crafts?sort=margin&limit=3")
     call(base, "/api/crafts?q=netherite&limit=5")
     call(base, "/api/crafts?minProfit=1000000&limit=3")
@@ -92,14 +104,28 @@ def main() -> int:
             cells = grid.get("cells") or []
             slots = grid.get("slots") or []
             placed = sum(1 for r in cells for c in r if c) or len(slots)
+            sales = detail.get("recentSales") or []
+            summary = detail.get("salesSummary") or {}
             print(f"     detail {top_item}: craftable={detail.get('craftable')} "
                   f"type={detail.get('recipeType')} "
                   f"ingredients={len(flip.get('ingredients', []))} "
-                  f"placedCells={placed} sales={len(detail.get('recentSales') or [])}")
+                  f"placedCells={placed} sales={len(sales)}")
+            insta = flip.get("instasellProfit")
+            print(f"       instasell={'—' if insta is None else format(insta, ',.0f')} "
+                  f"basis={flip.get('instasellBasis')!r}")
+            if summary:
+                print(f"       salesSummary: {summary.get('sales')} on record, "
+                      f"low={summary.get('low')} median={summary.get('median')} "
+                      f"high={summary.get('high')}")
             if not flip:
                 FAILED.append(f"top item {top_item} has no flip on its detail page")
             if not placed:
                 FAILED.append(f"{top_item} detail page rendered no priced cells")
+            # regression: the feed nests seller as an object and stamps timeSold,
+            # so a flat read left both columns blank
+            blank = [s for s in sales if not s.get("seller") or not s.get("at")]
+            if sales and len(blank) == len(sales):
+                FAILED.append(f"{top_item} sales feed has no seller/time on any row")
         call(base, f"/api/crafts/{top_item}/history")
 
     # the plan's hand-check: netherite ingot is 4 scrap + 4 gold
@@ -113,6 +139,9 @@ def main() -> int:
                   f"= {ing['subtotal']:>13,.0f}  ({ing['source']})")
         print(f"       cost {f['cost']:,.0f}  sells for {f['revenue']:,.0f}  "
               f"profit {f['profit']:,.0f}")
+        if f.get("instasellProfit") is not None:
+            print(f"       instasell at {f['instasellUnitPrice']:,.0f} x{f['outputCount']} "
+                  f"= {f['instasellRevenue']:,.0f}  profit {f['instasellProfit']:,.0f}")
     else:
         print("     netherite_ingot: not costable in this run")
 

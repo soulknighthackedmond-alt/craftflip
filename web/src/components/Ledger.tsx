@@ -1,7 +1,14 @@
 import type { Flip } from '../api'
 import FlipRow from './FlipRow'
 
-export type SortKey = 'profit' | 'margin' | 'cost' | 'revenue' | 'item' | 'profitPerUnit'
+export type SortKey =
+  | 'profit'
+  | 'margin'
+  | 'cost'
+  | 'revenue'
+  | 'item'
+  | 'profitPerUnit'
+  | 'instasellProfit'
 
 const COLUMNS: { key: SortKey | null; label: string; left?: boolean }[] = [
   { key: 'item', label: 'Item', left: true },
@@ -9,6 +16,7 @@ const COLUMNS: { key: SortKey | null; label: string; left?: boolean }[] = [
   { key: 'revenue', label: 'Sells for' },
   { key: 'profit', label: 'Profit' },
   { key: 'margin', label: 'Margin' },
+  { key: 'instasellProfit', label: 'Instasell' },
   { key: null, label: 'Listed now' },
   { key: null, label: 'Age' },
 ]

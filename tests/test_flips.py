@@ -12,7 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.flips import compute_flip, ingredient_options, needed_names  # noqa: E402
+from app.donut import sale_row, summarise_sales  # noqa: E402
+from app.flips import SORTS, compute_flip, ingredient_options, needed_names  # noqa: E402
 from app.market import candidate_tokens, plain_entry  # noqa: E402
 
 
@@ -255,6 +256,145 @@ def test_dedupe_drops_uncomputable_recipes():
     from app.flips import FlipTable
 
     assert FlipTable._dedupe([None, None]) == []
+
+
+# --------------------------------------------------------- transaction feed ----
+
+def test_sale_row_reads_the_real_upstream_shape():
+    """Regression: the feed nests seller as an object and stamps timeSold. The
+    earlier mapping read a flat `seller` and a `createdAt`, so both columns
+    rendered a dash."""
+    row = sale_row(
+        {
+            "seller": {"uuid": "d8d3-4a", "name": "noamgr17"},
+            "price": 4700000,
+            "timeSold": "2026-09-29T09:19:10.147Z",
+            "itemId": "e5bce2cd",
+            "itemCount": 1,
+        }
+    )
+    assert row["seller"] == "noamgr17"
+    assert row["at"] == "2026-09-29T09:19:10.147Z"
+    assert row["price"] == 4700000
+    assert row["unitPrice"] == 4700000
+
+
+def test_sale_row_divides_a_stack_into_a_unit_price():
+    row = sale_row({"seller": {"name": "x"}, "price": 6400, "itemCount": 64, "timeSold": "2026-10-01T00:00:00Z"})
+    assert row["unitPrice"] == 100
+    assert row["itemCount"] == 64
+
+
+def test_sale_row_survives_a_missing_seller_and_count():
+    row = sale_row({"price": 500})
+    assert row["seller"] is None
+    assert row["at"] is None
+    assert row["itemCount"] == 1
+    assert row["unitPrice"] == 500
+
+
+def test_summarise_sales_reports_low_median_high_and_newest():
+    sales = [
+        sale_row({"price": 300, "timeSold": "2026-10-01T00:00:00Z"}),
+        sale_row({"price": 100, "timeSold": "2026-09-01T00:00:00Z"}),
+        sale_row({"price": 200, "timeSold": "2026-09-15T00:00:00Z"}),
+    ]
+    s = summarise_sales(sales)
+    assert (s["low"], s["median"], s["high"]) == (100, 200, 300)
+    # newest is by timestamp, not by position in the feed
+    assert s["last"] == 300
+    assert s["lastAt"] == "2026-10-01T00:00:00Z"
+
+
+def test_summarise_sales_handles_an_empty_feed():
+    assert summarise_sales([]) == {"sales": 0, "priced": 0}
+
+
+def test_summarise_sales_ignores_unpriced_rows():
+    sales = [sale_row({"price": 100, "timeSold": "2026-10-01T00:00:00Z"}), sale_row({"price": None})]
+    s = summarise_sales(sales)
+    assert s["sales"] == 2
+    assert s["priced"] == 1
+    assert s["median"] == 100
+
+
+# ----------------------------------------------------------------- instasell ----
+
+class StubSales:
+    """Stand-in for SalesIndex: item -> lowest price it recently sold at."""
+
+    def __init__(self, lows: dict[str, float]):
+        self.basis = "lowest of recent sales"
+        self._lows = lows
+
+    def entry(self, name):
+        low = self._lows.get(name)
+        if low is None:
+            return None
+        return {
+            "low": low,
+            "median": low * 1.2,
+            "high": low * 2.0,
+            "sales": 3,
+            "lastAt": "2026-10-01T00:00:00Z",
+        }
+
+    def price(self, name):
+        return self._lows.get(name)
+
+
+def test_instasell_profit_uses_the_lowest_recent_sale():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)], output_count=2), market, sales=StubSales({"out": 400}))
+    assert flip["instasellUnitPrice"] == 400
+    assert flip["instasellRevenue"] == 800
+    assert flip["instasellProfit"] == 700  # 800 - 100
+    assert flip["instasellBasis"] == "lowest of recent sales"
+    assert flip["instasellSales"] == 3
+    assert flip["instasellLastAt"] == "2026-10-01T00:00:00Z"
+
+
+def test_instasell_is_none_when_the_item_has_no_recorded_sales():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market, sales=StubSales({}))
+    assert flip["instasellUnitPrice"] is None
+    assert flip["instasellRevenue"] is None
+    assert flip["instasellProfit"] is None
+    assert flip["instasellMargin"] is None
+    assert flip["instasellBasis"] is None
+
+
+def test_instasell_is_none_without_a_sales_index_at_all():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market)
+    assert flip["instasellProfit"] is None
+    assert flip["profit"] == 400  # the listing side is unaffected
+
+
+def test_instasell_can_lose_money_while_listing_profits():
+    """The point of the column: a flip that only works if a buyer turns up."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market, sales=StubSales({"out": 50}))
+    assert flip["profit"] == 400
+    assert flip["instasellProfit"] == -50
+    assert flip["instasellMargin"] < 0
+
+
+def test_instasell_takes_the_same_fee():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market, fee_percent=10.0, sales=StubSales({"out": 400}))
+    assert flip["instasellFee"] == 40
+    assert flip["instasellProfit"] == 260  # 400 - 100 - 40
+
+
+def test_instasell_sort_key_sinks_rows_with_no_sales():
+    rows = [
+        {"instasellProfit": None, "item": "unknown"},
+        {"instasellProfit": 5.0, "item": "small"},
+        {"instasellProfit": 900.0, "item": "big"},
+    ]
+    ranked = sorted(rows, key=SORTS["instasellProfit"], reverse=True)
+    assert [r["item"] for r in ranked] == ["big", "small", "unknown"]
 
 
 # ---------------------------------------------------------------- the runner ----

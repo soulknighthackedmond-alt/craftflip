@@ -38,6 +38,17 @@ export interface Flip {
   outputCount: number
   costPerUnit: number
   profitPerUnit: number
+  /** what the output fetches if it is dumped now rather than listed and waited on.
+   *  Null until the sales index has looked this item up. */
+  instasellUnitPrice: number | null
+  instasellRevenue: number | null
+  instasellFee: number | null
+  instasellProfit: number | null
+  instasellMargin: number | null
+  /** how the dump price was derived, e.g. "lowest of recent sales" */
+  instasellBasis: string | null
+  instasellSales: number | null
+  instasellLastAt: string | null
   estimated: boolean
   /** every material is buyable right now, so this flip can actually be executed */
   actionable: boolean
@@ -85,8 +96,21 @@ export interface Grid {
 export interface Sale {
   price: number | null
   itemCount: number | null
+  /** price per unit -- one sale can cover a whole stack */
+  unitPrice: number | null
   seller: string | null
   at: string | null
+}
+
+/** What the completed sales say about the price an item actually clears at. */
+export interface SalesSummary {
+  sales: number
+  priced: number
+  low?: number
+  median?: number
+  high?: number
+  last?: number | null
+  lastAt?: string | null
 }
 
 export interface Detail {
@@ -99,6 +123,7 @@ export interface Detail {
   recipeType?: string
   unpriced?: string
   recentSales?: Sale[]
+  salesSummary?: SalesSummary
   recentSalesError?: string
 }
 

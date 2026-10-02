@@ -12,6 +12,10 @@ services:
       FLIPS_TTL_SECONDS: "30"
       DONUT_FEE_PERCENT: "0"
       REQUEST_SPACING_SECONDS: "0.25"
+      # the sell side fills in slowly behind the price index: one request per item
+      SALES_TTL_SECONDS: "3600"
+      SALES_SPACING_SECONDS: "1.0"
+      SALES_MAX_PER_CYCLE: "600"
     volumes:
       # flip history lives here; the recipe dataset is baked into the image
       - craftflip-data:/data

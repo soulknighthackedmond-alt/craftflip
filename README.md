@@ -64,6 +64,33 @@ margin  = profit / cost
   The table keeps one row per output — preferring an actionable recipe, then the
   higher profit — and counts the rest as `alternates`.
 
+### The sell side (instasell)
+
+```
+instasell price   = lowest price the output has actually sold for recently
+instasell revenue = instasell price × output count
+instasell profit  = instasell revenue − cost − fee
+```
+
+The listing side above is priced off donut.auction's market-value index, which is a
+*smoothed* figure: for thin items it can sit a long way from what the item really
+changes hands for. `pink_bed`'s index read 39,890 while ten actual sales went through
+at 250,000–800,000. The instasell column is the reality check — a row can show a
+healthy listing profit and a *negative* instasell profit, which means the flip only
+pays if a buyer turns up at the index price.
+
+DonutSMP has **no public bid side**. donut.auction retired its order data (its
+`/orders` page says "Order data has been retired", `/v1/orders/items/{id}/prices` is
+404, and `/v2/orders/search/` returns an empty list), and the official
+`api.donutsmp.net` exposes auction listings and transactions only. So the only
+sell-side signal available is the completed-sales feed, and it costs one request per
+item.
+
+That is far too expensive to fold into the price refresh, so `SalesIndex`
+(`app/sales.py`) fills on its own slower cycle: ~875 outputs at a 1s gap, an hour
+TTL, about 0.25 requests/second. Until an item's turn comes round its instasell
+figures are `null` and the ledger shows a dash.
+
 ### Recipe data
 
 `tools/build_recipes.py` generates `data/recipes.json` from
@@ -79,14 +106,28 @@ the pinned version.
 
 ## API
 
+| Endpoint | What it gives you |
+| --- | --- |
+| `GET /api/crafts` | the ranked table; `sort=profit\|margin\|cost\|revenue\|item\|profitPerUnit\|instasellProfit` |
+| `GET /api/crafts/{item}` | one item: recipe grid with priced slots, full arithmetic, and its recent sales |
+| `GET /api/crafts/{item}/history` | craftflip's own recorded profit history for that flip |
+| `GET /api/items/search?q=` | item name lookup |
+| `GET /api/market/{item}` | the raw price index entry for an item |
+| `GET /api/status` | index age, request counts, sales-index fill state |
+| `GET /health` | liveness plus index sizes |
+
+Every flip row carries `instasellProfit`, `instasellUnitPrice`, `instasellBasis` and
+`instasellSales` alongside the listing-side `profit`. `instasellProfit` is `null`
+until the sales index has looked that item up.
+
 | endpoint | gives |
 | --- | --- |
-| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`), `limit`, `profitableOnly` |
+| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`\|`instasellProfit`), `limit`, `profitableOnly` |
 | `GET /api/crafts/{item}` | one flip: recipe grid, per-ingredient breakdown, recent sales |
 | `GET /api/crafts/{item}/history` | profit and margin over time (`days`) |
 | `GET /api/items/search` | live passthrough to donut.auction search, ranked |
 | `GET /api/market/{item}` | the raw index entry for one item |
-| `GET /api/status` | index size, age, request count, upstream health |
+| `GET /api/status` | index size, age, request count, upstream health, sales-index fill |
 | `GET /health` | liveness |
 | `GET /docs` | interactive OpenAPI docs |
 

@@ -16,10 +16,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__, config
-from .donut import DonutClient, UpstreamError, normalize_query, prettify
+from .donut import DonutClient, UpstreamError, normalize_query, prettify, sale_row, summarise_sales
 from .flips import FlipTable, RecipeDataError, load_recipes, recipe_grid
 from .history import FlipHistory
 from .market import Market
+from .sales import SalesIndex
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("craftflip")
@@ -78,17 +79,28 @@ async def lifespan(app: FastAPI):
         spacing=config.REQUEST_SPACING_SECONDS,
         max_requests=config.MAX_REQUESTS_PER_REFRESH,
     )
-    table = FlipTable(market, doc["recipes"], config.DONUT_FEE_PERCENT, config.FLIPS_TTL_SECONDS)
+    sales = SalesIndex(
+        ttl=config.SALES_TTL_SECONDS,
+        spacing=config.SALES_SPACING_SECONDS,
+        max_per_cycle=config.SALES_MAX_PER_CYCLE,
+    )
+    table = FlipTable(
+        market, doc["recipes"], config.DONUT_FEE_PERCENT, config.FLIPS_TTL_SECONDS, sales
+    )
     history = FlipHistory(config.DATA_DIR, config.HISTORY_TOP_N, config.HISTORY_RETENTION_DAYS)
 
-    state.update({"client": client, "market": market, "table": table, "history": history})
+    state.update(
+        {"client": client, "market": market, "table": table, "sales": sales, "history": history}
+    )
     await market.start()
+    await sales.start(client, market)
     hist_task = asyncio.create_task(_history_loop(), name="flip-history")
 
     try:
         yield
     finally:
         hist_task.cancel()
+        await sales.stop()
         await market.stop()
         await client.shutdown()
 
@@ -113,6 +125,7 @@ def _require_ready() -> None:
 @app.get("/health")
 async def health() -> dict[str, Any]:
     market: Market | None = state.get("market")
+    sales: SalesIndex | None = state.get("sales")
     ok = bool(market and market.index)
     return {
         "status": "ok" if ok and not state.get("recipes_error") else "degraded",
@@ -120,6 +133,7 @@ async def health() -> dict[str, Any]:
         "recipesLoaded": len(state.get("recipes") or []),
         "recipesError": state.get("recipes_error"),
         "indexSize": len(market.index) if market else 0,
+        "salesIndexSize": sales.size() if sales else 0,
     }
 
 
@@ -129,12 +143,14 @@ async def status() -> dict[str, Any]:
     market: Market = state["market"]
     table: FlipTable = state["table"]
     history: FlipHistory = state["history"]
+    sales: SalesIndex = state["sales"]
     return {
         "service": "craftflip",
         "version": __version__,
         "upstream": config.UPSTREAM_BASE,
         "source": {"site": "https://donut.auction", "upstream": config.UPSTREAM_BASE},
         "market": market.snapshot(),
+        "sales": sales.snapshot(),
         "table": table.stats(),
         "history": history.status(),
         "recipes": state.get("recipes_meta"),
@@ -155,7 +171,9 @@ async def crafts(
     q: str | None = None,
     minProfit: float | None = None,
     minMargin: float | None = None,
-    sort: str = Query("profit", pattern="^(profit|margin|cost|revenue|item|profitPerUnit)$"),
+    sort: str = Query(
+        "profit", pattern="^(profit|margin|cost|revenue|item|profitPerUnit|instasellProfit)$"
+    ),
     limit: int = Query(100, ge=1, le=500),
     profitableOnly: bool = True,
 ) -> dict[str, Any]:
@@ -238,17 +256,12 @@ async def craft_detail(item_name: str) -> dict[str, Any]:
     if entry and entry.get("itemId"):
         try:
             tx = await state["client"].transactions(entry["itemId"])
-            out["recentSales"] = [
-                {
-                    "price": t.get("price"),
-                    "itemCount": t.get("itemCount"),
-                    "seller": t.get("seller") or t.get("sellerName"),
-                    "at": t.get("createdAt") or t.get("at") or t.get("soldAt"),
-                }
-                for t in tx[:15]
-            ]
+            sales = [sale_row(t) for t in tx[:15]]
+            out["recentSales"] = sales
+            out["salesSummary"] = summarise_sales(sales)
         except UpstreamError as exc:
             out["recentSales"] = []
+            out["salesSummary"] = {"sales": 0, "priced": 0}
             out["recentSalesError"] = str(exc)
     return out
 

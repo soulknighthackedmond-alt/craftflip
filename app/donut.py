@@ -44,6 +44,58 @@ def normalize_query(raw: str) -> str:
     return re.sub(r"_+", "_", q).strip("_").lower()
 
 
+def _num(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _seller_name(raw: Any) -> str | None:
+    """Upstream nests the seller as {"uuid": ..., "name": ...}, not a flat string."""
+    if isinstance(raw, dict):
+        return raw.get("name") or raw.get("username") or raw.get("uuid")
+    return raw if isinstance(raw, str) else None
+
+
+def sale_row(t: dict[str, Any]) -> dict[str, Any]:
+    """One completed sale, normalised.
+
+    The upstream transaction carries seller{uuid,name}, price, timeSold and
+    itemCount. An earlier mapping read a flat `seller` and a `createdAt` that does
+    not exist, so the sales table rendered a dash for both columns.
+    """
+    item_count = t.get("itemCount") or 1
+    price = _num(t.get("price"))
+    return {
+        "price": price,
+        "itemCount": item_count,
+        "unitPrice": (price / item_count) if price is not None and item_count else price,
+        "seller": _seller_name(t.get("seller") or t.get("sellerName")),
+        "at": t.get("timeSold") or t.get("createdAt") or t.get("at") or t.get("soldAt"),
+    }
+
+
+def summarise_sales(sales: list[dict[str, Any]]) -> dict[str, Any]:
+    """What the completed sales say about the price an item actually clears at."""
+    prices = sorted(s["unitPrice"] for s in sales if s.get("unitPrice"))
+    if not prices:
+        return {"sales": len(sales), "priced": 0}
+    mid = len(prices) // 2
+    median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
+    dated = [s for s in sales if s.get("at")]
+    newest = max(dated, key=lambda s: s["at"]) if dated else None
+    return {
+        "sales": len(sales),
+        "priced": len(prices),
+        "low": prices[0],
+        "median": median,
+        "high": prices[-1],
+        "last": newest["unitPrice"] if newest else None,
+        "lastAt": newest["at"] if newest else None,
+    }
+
+
 class UpstreamError(RuntimeError):
     def __init__(self, message: str, status: int = 502):
         super().__init__(message)

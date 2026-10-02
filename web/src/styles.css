@@ -123,7 +123,7 @@ a { color: inherit; text-decoration: none; }
 /* The thesis: the market's current arbitrage surface, stated as three facts. */
 .spread {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   border-bottom: 1px solid var(--hair);
 }
 
@@ -230,6 +230,7 @@ a { color: inherit; text-decoration: none; }
     104px                  /* sells for */
     116px                  /* profit    */
     148px                  /* margin    */
+    110px                  /* dump      */
     104px                  /* listed    */
     62px;                  /* age       */
   gap: 14px;
@@ -611,6 +612,23 @@ a { color: inherit; text-decoration: none; }
 
 .sales td.n { font-family: var(--ui); }
 
+/* the one-line verdict above the sales table */
+.sales-sum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding-bottom: 12px;
+}
+
+.sales-sum b {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  color: var(--text);
+  font-weight: 500;
+}
+
 .spark { display: block; width: 100%; height: 120px; }
 .spark .line { fill: none; stroke: var(--profit); stroke-width: 1.5; }
 .spark .area { fill: rgba(242, 176, 61, 0.08); }
@@ -638,7 +656,8 @@ a { color: inherit; text-decoration: none; }
     grid-template-columns: 1fr auto;
     grid-template-areas:
       'item   profit'
-      'meta   meta';
+      'meta   meta'
+      'dump   dump';
     row-gap: 6px;
     align-items: baseline;
   }
@@ -647,6 +666,7 @@ a { color: inherit; text-decoration: none; }
   .row .profit { grid-area: profit; font-size: 15px; }
   .row .cost, .row .revenue { display: none; }
   .row .margin { grid-area: meta; justify-content: flex-start; }
+  .row .dump { grid-area: dump; justify-self: end; font-size: 13px; }
   .row .listed, .row .age { display: none; }
 
   .ruler { justify-content: flex-start; }

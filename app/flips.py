@@ -81,8 +81,11 @@ def cost_ingredient(ing: dict[str, Any], market: Market) -> dict[str, Any] | Non
     return best
 
 
-def value_output(output: dict[str, Any], market: Market) -> dict[str, Any] | None:
-    """What the crafted output sells for, per the market."""
+def value_output(
+    output: dict[str, Any], market: Market, sales: Any = None
+) -> dict[str, Any] | None:
+    """What the crafted output sells for, per the market -- and what it would fetch
+    if it had to be dumped now, per what it has actually sold for recently."""
     name = output["item"]
     entry = market.lookup(name)
     if not entry:
@@ -97,6 +100,8 @@ def value_output(output: dict[str, Any], market: Market) -> dict[str, Any] | Non
     else:
         return None
     count = int(output.get("count") or 1)
+    sold = sales.entry(name) if sales is not None else None
+    dump = (sold or {}).get("low")
     return {
         "item": name,
         "displayName": entry.get("displayName") or prettify(name),
@@ -109,10 +114,22 @@ def value_output(output: dict[str, Any], market: Market) -> dict[str, Any] | Non
         "volume24h": entry.get("volume24h") or 0.0,
         "sales24h": entry.get("sales24h") or 0.0,
         "itemId": entry.get("itemId"),
+        # the sell side, from completed sales rather than the price index
+        "dumpUnitPrice": float(dump) if dump else None,
+        "dumpSales": (sold or {}).get("sales"),
+        "dumpLow": (sold or {}).get("low"),
+        "dumpMedian": (sold or {}).get("median"),
+        "dumpHigh": (sold or {}).get("high"),
+        "dumpLastAt": (sold or {}).get("lastAt"),
     }
 
 
-def compute_flip(recipe: dict[str, Any], market: Market, fee_percent: float = 0.0) -> dict[str, Any] | None:
+def compute_flip(
+    recipe: dict[str, Any],
+    market: Market,
+    fee_percent: float = 0.0,
+    sales: Any = None,
+) -> dict[str, Any] | None:
     """Cost, value and rank one recipe. None when it cannot be priced."""
     costs: list[dict[str, Any]] = []
     for ing in recipe["ingredients"]:
@@ -125,7 +142,7 @@ def compute_flip(recipe: dict[str, Any], market: Market, fee_percent: float = 0.
     if cost <= 0:
         return None  # free materials make margin meaningless
 
-    out = value_output(recipe["output"], market)
+    out = value_output(recipe["output"], market, sales)
     if out is None:
         return None
 
@@ -134,6 +151,15 @@ def compute_flip(recipe: dict[str, Any], market: Market, fee_percent: float = 0.
     profit = round(revenue - cost - fee, 4)
     margin = profit / cost
     listed = [c for c in costs if c["source"] == "listing"]
+
+    # The same craft sold to whoever is buying right now instead of listed and
+    # waited on. None when the item has no recorded sales to price a dump from.
+    dump_unit = out["dumpUnitPrice"]
+    dump_revenue = round(dump_unit * out["count"], 4) if dump_unit else None
+    dump_fee = round(dump_revenue * fee_percent / 100.0, 4) if dump_revenue else None
+    dump_profit = (
+        round(dump_revenue - cost - (dump_fee or 0.0), 4) if dump_revenue is not None else None
+    )
 
     return {
         "item": recipe["output"]["item"],
@@ -148,6 +174,14 @@ def compute_flip(recipe: dict[str, Any], market: Market, fee_percent: float = 0.
         "outputCount": out["count"],
         "costPerUnit": round(cost / out["count"], 4),
         "profitPerUnit": round(profit / out["count"], 4),
+        "instasellUnitPrice": dump_unit,
+        "instasellRevenue": dump_revenue,
+        "instasellFee": dump_fee,
+        "instasellProfit": dump_profit,
+        "instasellMargin": (dump_profit / cost) if dump_profit is not None else None,
+        "instasellBasis": getattr(sales, "basis", None) if dump_unit else None,
+        "instasellSales": out["dumpSales"],
+        "instasellLastAt": out["dumpLastAt"],
         # true when a material had no live listing and its market value stood in
         "estimated": len(listed) < len(costs),
         # every material is buyable right now, so this flip can actually be executed
@@ -170,20 +204,33 @@ SORTS = {
     "revenue": lambda f: f["revenue"],
     "item": lambda f: f["item"],
     "profitPerUnit": lambda f: f["profitPerUnit"],
+    # rows with no recorded sales sort last rather than being treated as zero
+    "instasellProfit": lambda f: (
+        f["instasellProfit"] if f["instasellProfit"] is not None else float("-inf")
+    ),
 }
 
 
 class FlipTable:
     """Recomputes the ranked table from the market index, cached briefly."""
 
-    def __init__(self, market: Market, recipes: list[dict[str, Any]], fee_percent: float = 0.0, ttl: float = 30.0):
+    def __init__(
+        self,
+        market: Market,
+        recipes: list[dict[str, Any]],
+        fee_percent: float = 0.0,
+        ttl: float = 30.0,
+        sales: Any = None,
+    ):
         self.market = market
         self.recipes = recipes
         self.fee_percent = fee_percent
         self.ttl = ttl
+        self.sales = sales
         self._rows: list[dict[str, Any]] | None = None
         self._built_at: float | None = None
         self._index_built_at: float | None = None
+        self._sales_revision: int | None = None
         self._lock = asyncio.Lock()
 
     def _is_fresh(self) -> bool:
@@ -192,7 +239,13 @@ class FlipTable:
         if time.time() - self._built_at > self.ttl:
             return False
         # recompute if the underlying index was refreshed underneath us
-        return self._index_built_at == self.market.built_at
+        if self._index_built_at != self.market.built_at:
+            return False
+        # the sales index fills in slowly in the background, so a new sell-side
+        # price should surface without waiting for the next price refresh. Compare a
+        # revision counter, not the last-pass timestamp: that stays None until a
+        # whole pass finishes, which would keep an empty table looking fresh.
+        return self._sales_revision == getattr(self.sales, "revision", 0)
 
     async def rows(self) -> list[dict[str, Any]]:
         if self._is_fresh():
@@ -201,12 +254,13 @@ class FlipTable:
             if self._is_fresh():
                 return self._rows or []
             built = self._dedupe(
-                compute_flip(r, self.market, self.fee_percent) for r in self.recipes
+                compute_flip(r, self.market, self.fee_percent, self.sales) for r in self.recipes
             )
             built.sort(key=lambda f: f["profit"], reverse=True)
             self._rows = built
             self._built_at = time.time()
             self._index_built_at = self.market.built_at
+            self._sales_revision = getattr(self.sales, "revision", 0)
             return built
 
     @staticmethod

@@ -3,7 +3,7 @@ import { type Detail, type HistoryResponse } from '../api'
 import CraftGrid from '../components/CraftGrid'
 import Sparkline from '../components/Sparkline'
 import { BackLink } from '../Layout'
-import { ageSeconds, coins, coinsExact, count, pct, shortDate, titleise } from '../format'
+import { ageFrom, ageSeconds, coins, coinsExact, count, pct, shortDate, titleise } from '../format'
 import { usePoll } from '../hooks'
 
 export default function ItemPage() {
@@ -134,32 +134,78 @@ export default function ItemPage() {
                       <span className="k">Profit per unit</span>
                       <span className="v">{coinsExact(flip.profitPerUnit)}</span>
                     </div>
+                    <div className="mline">
+                      <span className="k">
+                        Instasell ({flip.instasellBasis ?? 'no recent sales'})
+                      </span>
+                      <span className="v">
+                        {flip.instasellRevenue === null ? '—' : coinsExact(flip.instasellRevenue)}
+                      </span>
+                    </div>
+                    <div
+                      className={`mline total ${
+                        flip.instasellProfit === null ? '' : flip.instasellProfit >= 0 ? 'up' : 'down'
+                      }`}
+                    >
+                      <span className="k">Instasell profit</span>
+                      <span className="v">
+                        {flip.instasellProfit === null ? '—' : coinsExact(flip.instasellProfit)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
                 <div className="panel">
                   <h4>Recent sales</h4>
                   {d.recentSales && d.recentSales.length > 0 ? (
-                    <table className="sales">
-                      <thead>
-                        <tr>
-                          <th>Buyer paid</th>
-                          <th className="r">Qty</th>
-                          <th>Seller</th>
-                          <th className="r">When</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {d.recentSales.map((s, i) => (
-                          <tr key={i}>
-                            <td title={coinsExact(s.price)}>{coins(s.price)}</td>
-                            <td className="r">{s.itemCount ?? '—'}</td>
-                            <td className="n">{s.seller ?? '—'}</td>
-                            <td className="r">{shortDate(s.at)}</td>
+                    <>
+                      {d.salesSummary && d.salesSummary.priced > 0 ? (
+                        <div className="sales-sum">
+                          <span>
+                            <b>{count(d.salesSummary.sales)}</b> on record
+                          </span>
+                          <span>
+                            clears at <b>{coins(d.salesSummary.median)}</b> median
+                          </span>
+                          <span>
+                            low <b>{coins(d.salesSummary.low)}</b>
+                          </span>
+                          <span>
+                            high <b>{coins(d.salesSummary.high)}</b>
+                          </span>
+                          <span>
+                            newest{' '}
+                            {d.salesSummary.lastAt ? `${ageFrom(d.salesSummary.lastAt)} ago` : '—'}
+                          </span>
+                        </div>
+                      ) : null}
+                      <table className="sales">
+                        <thead>
+                          <tr>
+                            <th>Buyer paid</th>
+                            <th className="r">Qty</th>
+                            <th className="r">Each</th>
+                            <th>Seller</th>
+                            <th className="r">When</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {d.recentSales.map((s, i) => (
+                            <tr key={i}>
+                              <td title={coinsExact(s.price)}>{coins(s.price)}</td>
+                              <td className="r">{s.itemCount ?? '—'}</td>
+                              <td className="r" title={coinsExact(s.unitPrice)}>
+                                {coins(s.unitPrice)}
+                              </td>
+                              <td className="n">{s.seller ?? '—'}</td>
+                              <td className="r" title={shortDate(s.at)}>
+                                {s.at ? `${ageFrom(s.at)} ago` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
                   ) : (
                     <div className="grid-note" style={{ marginTop: 0, maxWidth: 'none' }}>
                       {d.recentSalesError

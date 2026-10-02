@@ -35,6 +35,7 @@ export default function FlipRow({ flip }: { flip: Flip }) {
   }, [open, loaded, flip.item])
 
   const up = flip.profit >= 0
+  const dumpUp = (flip.instasellProfit ?? 0) >= 0
   const fee = flip.fee || 0
 
   return (
@@ -71,6 +72,20 @@ export default function FlipRow({ flip }: { flip: Flip }) {
           title={`profit ${coinsExact(flip.profit)}`}
         />
         <MarginRuler margin={flip.margin} />
+        <Num
+          className={`dump ${
+            flip.instasellProfit === null ? 'muted' : flip.instasellProfit >= 0 ? 'up' : 'down'
+          }`}
+          value={flip.instasellProfit}
+          format={coins}
+          title={
+            flip.instasellProfit === null
+              ? 'no recent sales recorded for this item yet'
+              : `instasell at ${coinsExact(flip.instasellUnitPrice ?? 0)} — ${flip.instasellBasis}${
+                  flip.instasellSales ? `, ${flip.instasellSales} sales on record` : ''
+                }`
+          }
+        />
         <span className="listed muted num" title={flip.listedAt ?? undefined}>
           {flip.listedNow === null ? '—' : coins(flip.listedNow)}
         </span>
@@ -158,6 +173,34 @@ export default function FlipRow({ flip }: { flip: Flip }) {
                 <span className="k">Margin</span>
                 <span className="v">{pct(flip.margin)}</span>
               </div>
+              <div className="mline">
+                <span className="k">
+                  Instasell ({flip.instasellBasis ?? 'no recent sales'})
+                </span>
+                <span className="v">
+                  {flip.instasellRevenue === null ? '—' : coinsExact(flip.instasellRevenue)}
+                </span>
+              </div>
+              <div
+                className={`mline total ${
+                  flip.instasellProfit === null ? '' : dumpUp ? 'up' : 'down'
+                }`}
+              >
+                <span className="k">Instasell profit</span>
+                <span className="v">
+                  {flip.instasellProfit === null ? '—' : coinsExact(flip.instasellProfit)}
+                </span>
+              </div>
+              {flip.instasellUnitPrice !== null ? (
+                <div className="mline">
+                  <span className="k">
+                    Instasell price ({flip.outputCount}× at {coinsExact(flip.instasellUnitPrice)})
+                  </span>
+                  <span className="v">
+                    {flip.instasellLastAt ? `last sold ${ageFrom(flip.instasellLastAt)} ago` : '—'}
+                  </span>
+                </div>
+              ) : null}
               <div className="mline">
                 <span className="k">Listed now</span>
                 <span className="v">

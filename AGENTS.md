@@ -37,6 +37,20 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   a styled `displayName`. Always prefer the plain entry (`market.plain_entry`), or a
   cosmetic axe gets mistaken for the market price.
 - `displayName` is null in practice; prettify `itemName` instead.
+- There is **no public bid side**, so no real "instasell" quote exists. Order data is
+  retired: donut.auction's `/orders` page says "Order data has been retired",
+  `/v1/orders/items/{id}/prices` is 404, `/v2/orders/search/` returns `{"items":[]}`,
+  and the official `api.donutsmp.net` has no order endpoint. The only sell-side data is
+  `/v2/auctions/items/{id}/transactions` — max **10** rows and it does not paginate
+  (`nextCursor` is null even when 10 come back).
+- A transaction is `{seller:{uuid,name}, price, timeSold, itemId, itemCount}`. `price` is
+  the total for that sale, so divide by `itemCount` for a unit price. Reading a flat
+  `seller`/`createdAt` (as an earlier revision did) leaves both columns blank.
+- The search `price` object is only `{value, volume24Hours, saleCount24Hours}`, and both
+  24h fields are 0 in practice. `value` is a smoothed index, not a last-sale price, and
+  it can be far off for thin items — `pink_bed`'s index read 39,890 while real sales
+  went through at 250k–800k, so the instasell column can legitimately exceed the
+  listing-side profit.
 
 ## Gotchas
 
@@ -48,6 +62,9 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   `python -c "..."` argument truncates it — keep `-c` scripts on one line.
 - `DONUT_FEE_PERCENT` defaults to 0 and no real DonutSMP fee figure is known; every
   profit figure is gross of any auction cut.
+- The flip table's cache compares `SalesIndex.revision`, not `last_pass`. `last_pass`
+  stays `None` until a whole sales pass finishes, so a table built before any sales
+  data existed looked permanently fresh and every instasell cell read `null`.
 
 ## Deployment (live as of 2026-10-02)
 

@@ -33,6 +33,15 @@ REQUEST_SPACING_SECONDS = float(os.getenv("REQUEST_SPACING_SECONDS", "0.25"))
 # vanilla recipe set needs a few hundred; this stops a pathological run.
 MAX_REQUESTS_PER_REFRESH = int(os.getenv("MAX_REQUESTS_PER_REFRESH", "1400"))
 
+# The sell side (what an item has actually sold for) costs one upstream request per
+# craftable output, so it runs on its own much slower cycle instead of slowing the
+# price refresh down. An item has no dump price until its turn comes round. At a
+# 1s gap a full pass over the ~875 outputs takes about 15 minutes, which leaves the
+# whole thing well inside an hour-long TTL -- roughly 0.25 requests/second average.
+SALES_TTL_SECONDS = float(os.getenv("SALES_TTL_SECONDS", "3600"))
+SALES_SPACING_SECONDS = float(os.getenv("SALES_SPACING_SECONDS", "1.0"))
+SALES_MAX_PER_CYCLE = int(os.getenv("SALES_MAX_PER_CYCLE", "600"))
+
 # Where the recipe dataset and the flip-history log live.
 DATA_DIR = os.getenv("DATA_DIR", str(ROOT_DIR / "data"))
 RECIPES_PATH = os.getenv("RECIPES_PATH", str(ROOT_DIR / "data" / "recipes.json"))
