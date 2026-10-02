@@ -1,0 +1,45 @@
+{
+  "$comment": [
+    "DonutSMP /sell base prices, per item, at a 1.0x multiplier.",
+    "",
+    "This is the file to edit. craftflip reloads it whenever it changes, so values",
+    "read in game with /worth can be added without a rebuild. Two files are read and",
+    "merged: the copy shipped in the image (this one) and, if it exists, a copy at",
+    "$DATA_DIR/sell_prices.json -- the mounted volume -- whose entries win. Add your",
+    "own values to the volume copy so a redeploy cannot overwrite them.",
+    "",
+    "An entry is either a bare number, or an object:",
+    "  \"oak_log\": 300",
+    "  \"oak_log\": {\"base\": 300, \"mult\": 2.4, \"source\": \"in-game\", \"note\": \"mine\"}",
+    "",
+    "\"mult\" is your own /sellmulti level for that item (1.0x-3.0x, per item). It",
+    "defaults to the top-level \"multiplier\" below. \"source\" is one of in-game, wiki",
+    "or community, and it feeds the confidence score: a value you read yourself with",
+    "/worth is trusted, a community value less so.",
+    "",
+    "Nothing here is inferred. A base price the server does not publish cannot be",
+    "guessed from the shop -- /shop prices are what the server CHARGES, which is a",
+    "different number from what /sell pays. Items absent from this table simply have",
+    "no fixed sell price, and the ledger falls back to what the item has actually",
+    "sold for, labelled as such."
+  ],
+  "multiplier": 1.0,
+  "items": {
+    "oak_log": { "base": 300, "source": "wiki" },
+    "sand": { "base": 100, "source": "wiki" },
+    "diamond": { "base": 1200, "source": "wiki" },
+    "nether_gold_ore": { "base": 1200, "source": "wiki" },
+    "leather": { "base": 10000, "source": "wiki" },
+    "bamboo_block": { "base": 500, "source": "wiki" },
+    "dried_kelp_block": {
+      "base": 550,
+      "source": "wiki",
+      "note": "a community quant project lists 300 for this item; the wiki's 550 is used here"
+    },
+    "ancient_debris": { "base": 1700000, "source": "wiki" },
+    "spruce_slab": { "base": 12, "source": "community" },
+    "bone_meal": { "base": 30, "source": "community" },
+    "pink_petals": { "base": 10, "source": "community" },
+    "wildflowers": { "base": 10, "source": "community" }
+  }
+}

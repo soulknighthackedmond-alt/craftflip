@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, type Flip, type Grid } from '../api'
 import { ageFrom, coins, coinsExact, pct, titleise } from '../format'
 import { Num } from '../hooks'
+import Confidence from './Confidence'
 import CraftGrid from './CraftGrid'
 import MarginRuler from './MarginRuler'
 
@@ -35,7 +36,8 @@ export default function FlipRow({ flip }: { flip: Flip }) {
   }, [open, loaded, flip.item])
 
   const up = flip.profit >= 0
-  const dumpUp = (flip.instasellProfit ?? 0) >= 0
+  const sellUp = (flip.instasellProfit ?? 0) >= 0
+  const dumpUp = (flip.dumpProfit ?? 0) >= 0
   const fee = flip.fee || 0
 
   return (
@@ -73,18 +75,25 @@ export default function FlipRow({ flip }: { flip: Flip }) {
         />
         <MarginRuler margin={flip.margin} />
         <Num
-          className={`dump ${
+          className={`instasell ${
             flip.instasellProfit === null ? 'muted' : flip.instasellProfit >= 0 ? 'up' : 'down'
           }`}
           value={flip.instasellProfit}
           format={coins}
           title={
             flip.instasellProfit === null
-              ? 'no recent sales recorded for this item yet'
-              : `instasell at ${coinsExact(flip.instasellUnitPrice ?? 0)} — ${flip.instasellBasis}${
-                  flip.instasellSales ? `, ${flip.instasellSales} sales on record` : ''
-                }`
+              ? 'this item has no fixed /sell price in the table, so there is no instant payout to show'
+              : `server /sell pays ${coinsExact(flip.instasellUnitPrice ?? 0)} each` +
+                (flip.instasellMultiplier && flip.instasellMultiplier !== 1
+                  ? ` (base ${coinsExact(flip.instasellBasePrice ?? 0)} × ${flip.instasellMultiplier}×)`
+                  : '') +
+                ` — ${flip.instasellSource ?? 'unattributed'}`
           }
+        />
+        <Confidence
+          score={flip.confidence}
+          label={flip.confidenceLabel}
+          factors={flip.confidenceFactors}
         />
         <span className="listed muted num" title={flip.listedAt ?? undefined}>
           {flip.listedNow === null ? '—' : coins(flip.listedNow)}
@@ -175,15 +184,33 @@ export default function FlipRow({ flip }: { flip: Flip }) {
               </div>
               <div className="mline">
                 <span className="k">
-                  Instasell ({flip.instasellBasis ?? 'no recent sales'})
+                  Instasell — server /sell
+                  {flip.instasellBasePrice !== null
+                    ? ` at ${coinsExact(flip.instasellUnitPrice ?? 0)} each`
+                    : ''}
                 </span>
                 <span className="v">
-                  {flip.instasellRevenue === null ? '—' : coinsExact(flip.instasellRevenue)}
+                  {flip.instasellRevenue === null
+                    ? 'no fixed price for this item'
+                    : coinsExact(flip.instasellRevenue)}
                 </span>
               </div>
+              {flip.instasellBasePrice !== null ? (
+                <div className="mline">
+                  <span className="k">
+                    Base {coinsExact(flip.instasellBasePrice)} × {flip.instasellMultiplier ?? 1}×
+                    {' '}({flip.instasellSource ?? 'unattributed'})
+                  </span>
+                  <span className="v">
+                    {flip.instasellNote
+                      ? `note: ${flip.instasellNote}`
+                      : `${flip.outputCount}× sold`}
+                  </span>
+                </div>
+              ) : null}
               <div
                 className={`mline total ${
-                  flip.instasellProfit === null ? '' : dumpUp ? 'up' : 'down'
+                  flip.instasellProfit === null ? '' : sellUp ? 'up' : 'down'
                 }`}
               >
                 <span className="k">Instasell profit</span>
@@ -191,16 +218,46 @@ export default function FlipRow({ flip }: { flip: Flip }) {
                   {flip.instasellProfit === null ? '—' : coinsExact(flip.instasellProfit)}
                 </span>
               </div>
-              {flip.instasellUnitPrice !== null ? (
+              <div className="mline">
+                <span className="k">
+                  Sold to players (
+                  {flip.dumpSales ? `${flip.dumpSales} recent sales` : 'none recorded'})
+                </span>
+                <span className="v">
+                  {flip.dumpRevenue === null ? '—' : coinsExact(flip.dumpRevenue)}
+                </span>
+              </div>
+              <div
+                className={`mline total ${flip.dumpProfit === null ? '' : dumpUp ? 'up' : 'down'}`}
+              >
+                <span className="k">Profit if dumped on the market</span>
+                <span className="v">
+                  {flip.dumpProfit === null ? '—' : coinsExact(flip.dumpProfit)}
+                </span>
+              </div>
+              {flip.dumpLastAt ? (
                 <div className="mline">
-                  <span className="k">
-                    Instasell price ({flip.outputCount}× at {coinsExact(flip.instasellUnitPrice)})
-                  </span>
-                  <span className="v">
-                    {flip.instasellLastAt ? `last sold ${ageFrom(flip.instasellLastAt)} ago` : '—'}
-                  </span>
+                  <span className="k">Last recorded sale</span>
+                  <span className="v">{ageFrom(flip.dumpLastAt)} ago</span>
                 </div>
               ) : null}
+              <div className="mline">
+                <span className="k">Confidence</span>
+                <span className="v">
+                  {flip.confidence}% ({flip.confidenceLabel})
+                </span>
+              </div>
+              <div className="factors">
+                {flip.confidenceFactors.map((f) => (
+                  <div className="factor" key={f.key} title={f.detail}>
+                    <span className="fk">{f.label}</span>
+                    <span className="ftrack" aria-hidden="true">
+                      <i style={{ width: `${Math.round(f.score * 100)}%` }} />
+                    </span>
+                    <span className="fv num">{f.contribution} pts</span>
+                  </div>
+                ))}
+              </div>
               <div className="mline">
                 <span className="k">Listed now</span>
                 <span className="v">

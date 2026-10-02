@@ -10,11 +10,17 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   differs.
 - `app/market.py` — builds `name -> price`. Owns the index strategy.
 - `app/flips.py` — recipe loading, the flip maths, the ranked table and the grid render.
+- `app/sales.py` — the completed-sales index behind the market-dump column.
+- `app/sellprices.py` — the fixed `/sell` price table, merged from the image copy and a
+  volume copy, reloaded on mtime change.
+- `app/confidence.py` — the per-row 0-100 confidence score and its factor breakdown.
 - `app/history.py` — flip history as JSONL, degrades silently.
 - `app/main.py` — API + SPA host. `web/` is Vite + React + TS, no UI kit.
+- `data/sell_prices.json` — the committed `/sell` base prices (bare numbers allowed).
 - `tools/build_recipes.py` — generates `data/recipes.json` (committed).
 - `tools/local_check.py` — one live index refresh + the resulting table, no server.
 - `tools/verify_craftflip.py` — endpoint sweep against a running instance.
+- `tools/check_sell_side.py` — proves the `/sell` path and prints a full confidence breakdown.
 
 ## Build / test / run
 
@@ -37,12 +43,24 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   a styled `displayName`. Always prefer the plain entry (`market.plain_entry`), or a
   cosmetic axe gets mistaken for the market price.
 - `displayName` is null in practice; prettify `itemName` instead.
-- There is **no public bid side**, so no real "instasell" quote exists. Order data is
-  retired: donut.auction's `/orders` page says "Order data has been retired",
+- There is **no public bid side**, so no real order-book "instasell" quote exists. Order
+  data is retired: donut.auction's `/orders` page says "Order data has been retired",
   `/v1/orders/items/{id}/prices` is 404, `/v2/orders/search/` returns `{"items":[]}`,
-  and the official `api.donutsmp.net` has no order endpoint. The only sell-side data is
-  `/v2/auctions/items/{id}/transactions` — max **10** rows and it does not paginate
-  (`nextCursor` is null even when 10 come back).
+  and the official `api.donutsmp.net` has no order endpoint. The last live order-book
+  feed, `lootseller.io`, **retired on 2026-09-29** ("DonutSMP disabled its public API"),
+  and `donutsmp.finance/api/items` is a **frozen 2026-06-25 snapshot** — its
+  `/api/status` reports `running: false` and every order `t` is 2026-06-25T19:21Z, so
+  its `instantSellPrice` is ~100 days stale and must not be used as live.
+- The fixed `/sell` payout is `server base price × the player's own per-item multiplier`
+  (1.0×–3.0×, raised via `/sellmulti`). `/sell` also auto-routes to the best matching
+  order when one pays more, but orders are retired so there is nothing to compare.
+  **Only 8 base prices are publicly confirmed** (donutsmp.wiki/sell): `oak_log` 300,
+  `sand` 100, `diamond` 1200, `nether_gold_ore` 1200, `leather` 10000, `bamboo_block`
+  500, `dried_kelp_block` 550, `ancient_debris` 1700000. A community quant project
+  (`Aeripsen/donut-quant`) adds `spruce_slab` 12, `bone_meal` 30, `pink_petals` 10,
+  `wildflowers` 10 — and disagrees on `dried_kelp_block` (300). There is no bulk source;
+  the wiki's `/shop` prices are what the server *charges* and are **not** the `/sell`
+  base. Values come from `/worth <item>` in game, via `data/sell_prices.json`.
 - A transaction is `{seller:{uuid,name}, price, timeSold, itemId, itemCount}`. `price` is
   the total for that sale, so divide by `itemCount` for a unit price. Reading a flat
   `seller`/`createdAt` (as an earlier revision did) leaves both columns blank.
@@ -62,7 +80,20 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   `python -c "..."` argument truncates it — keep `-c` scripts on one line.
 - `DONUT_FEE_PERCENT` defaults to 0 and no real DonutSMP fee figure is known; every
   profit figure is gross of any auction cut.
-- The sell-side (instasell) price is the **median** of the recent sales, not the lowest:
+- `instasell*` fields are the **fixed `/sell`** payout (server base × the player's own
+  multiplier); the previous median-of-sales number moved to `dump*`. Do not conflate
+  them: `/sell` needs no buyer, the dump does.
+- Confidence (`app/confidence.py`) is a weighted blend — cost basis 34%, sell price 26%,
+  agreement 16%, sales depth 12%, freshness 12% — and a row with any unlisted material
+  is capped at 60% so an unexecutable flip can never read *high*. The cap appears as an
+  extra `unbuyable` factor in the breakdown whenever `estimated` is true.
+- **Windows serves the SPA as `text/plain` unless the media type is set explicitly**:
+  Python's `mimetypes` reads the registry, where `.js` is registered as `text/plain`, and
+  a browser refuses to execute a module script with a non-JS type — the page loads and
+  then silently does nothing, with no console error. `app/main.py` sets the type from a
+  `_MEDIA_TYPES` map rather than guessing. Linux gets `.js` right, so this only shows up
+  when running locally on Windows.
+- The sell-side (dump) price is the **median** of the recent sales, not the lowest:
   thin markets carry outlier dumps (`waxed_weathered_chiseled_copper` has one at 6,250
   against a 2.4M index) that would otherwise swing a whole item's number.
 - That feed is **bimodal** for craftables: bulk stack sales clear at a much lower unit

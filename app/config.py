@@ -46,6 +46,16 @@ SALES_MAX_PER_CYCLE = int(os.getenv("SALES_MAX_PER_CYCLE", "600"))
 DATA_DIR = os.getenv("DATA_DIR", str(ROOT_DIR / "data"))
 RECIPES_PATH = os.getenv("RECIPES_PATH", str(ROOT_DIR / "data" / "recipes.json"))
 
+# The fixed /sell base prices. Two files are merged: the seed shipped in the image,
+# and an optional copy in DATA_DIR (the mounted volume) whose entries win, so values
+# read in game with /worth survive a redeploy. Both are reloaded when they change.
+SELL_PRICES_SEED_PATH = os.getenv(
+    "SELL_PRICES_SEED_PATH", str(ROOT_DIR / "data" / "sell_prices.json")
+)
+SELL_PRICES_PATH = os.getenv("SELL_PRICES_PATH", str(Path(DATA_DIR) / "sell_prices.json"))
+# Your own /sellmulti level, 1.0x by default. The table can override it per item.
+SELL_MULTIPLIER = float(os.getenv("SELL_MULTIPLIER", "1.0"))
+
 # Flip history
 HISTORY_TOP_N = int(os.getenv("HISTORY_TOP_N", "200"))
 HISTORY_RETENTION_DAYS = int(os.getenv("HISTORY_RETENTION_DAYS", "14"))

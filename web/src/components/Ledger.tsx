@@ -9,6 +9,7 @@ export type SortKey =
   | 'item'
   | 'profitPerUnit'
   | 'instasellProfit'
+  | 'confidence'
 
 const COLUMNS: { key: SortKey | null; label: string; left?: boolean }[] = [
   { key: 'item', label: 'Item', left: true },
@@ -17,6 +18,7 @@ const COLUMNS: { key: SortKey | null; label: string; left?: boolean }[] = [
   { key: 'profit', label: 'Profit' },
   { key: 'margin', label: 'Margin' },
   { key: 'instasellProfit', label: 'Instasell' },
+  { key: 'confidence', label: 'Conf.' },
   { key: null, label: 'Listed now' },
   { key: null, label: 'Age' },
 ]

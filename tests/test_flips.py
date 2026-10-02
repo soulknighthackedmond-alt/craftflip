@@ -318,7 +318,32 @@ def test_summarise_sales_ignores_unpriced_rows():
     assert s["median"] == 100
 
 
-# ----------------------------------------------------------------- instasell ----
+# ------------------------------------------------------- instasell (/sell) ----
+
+class StubSellPrices:
+    """Stand-in for SellPrices: item -> fixed /sell payout."""
+
+    def __init__(self, payouts: dict[str, float], source: str = "in-game", base: dict | None = None):
+        self._payouts = payouts
+        self._source = source
+        self._base = base or {}
+        self.revision = 1
+
+    def lookup(self, name):
+        payout = self._payouts.get(name)
+        if payout is None:
+            return None
+        return {
+            "base": self._base.get(name, payout),
+            "multiplier": 1.0,
+            "payout": payout,
+            "source": self._source,
+            "note": None,
+        }
+
+    def payout(self, name):
+        return self._payouts.get(name)
+
 
 class StubSales:
     """Stand-in for SalesIndex: item -> median price it recently sold at."""
@@ -326,6 +351,7 @@ class StubSales:
     def __init__(self, medians: dict[str, float]):
         self.basis = "median of recent sales"
         self._medians = medians
+        self.revision = 1
 
     def entry(self, name):
         median = self._medians.get(name)
@@ -343,28 +369,57 @@ class StubSales:
         return self._medians.get(name)
 
 
-def test_instasell_profit_uses_the_median_recent_sale():
+def test_instasell_uses_the_fixed_sell_price_not_the_market():
+    """The server's payout is what you get instantly; it ignores what players pay."""
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
-    flip = compute_flip(recipe([item("a", 1)], output_count=2), market, sales=StubSales({"out": 400}))
-    assert flip["instasellUnitPrice"] == 400
-    assert flip["instasellRevenue"] == 800
-    assert flip["instasellProfit"] == 700  # 800 - 100
-    assert flip["instasellBasis"] == "median of recent sales"
-    assert flip["instasellSales"] == 3
-    assert flip["instasellLastAt"] == "2026-10-01T00:00:00Z"
+    flip = compute_flip(
+        recipe([item("a", 1)], output_count=2),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 250}),
+    )
+    assert flip["instasellUnitPrice"] == 250  # the /sell payout, not the 400 sale
+    assert flip["instasellRevenue"] == 500
+    assert flip["instasellProfit"] == 400  # 500 - 100
+    assert flip["instasellBasis"] == "server /sell base price"
+    assert flip["instasellSource"] == "in-game"
 
 
-def test_instasell_is_none_when_the_item_has_no_recorded_sales():
+def test_instasell_keeps_the_market_dump_as_a_separate_number():
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
-    flip = compute_flip(recipe([item("a", 1)]), market, sales=StubSales({}))
+    flip = compute_flip(
+        recipe([item("a", 1)], output_count=2),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 250}),
+    )
+    assert flip["dumpUnitPrice"] == 400
+    assert flip["dumpRevenue"] == 800
+    assert flip["dumpProfit"] == 700
+    assert flip["dumpBasis"] == "median of recent sales"
+    assert flip["dumpSales"] == 3
+    assert flip["dumpLastAt"] == "2026-10-01T00:00:00Z"
+
+
+def test_instasell_is_none_when_the_item_has_no_fixed_sell_price():
+    """Absent from the table means unknown, never guessed."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)], output_count=2),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({}),
+    )
     assert flip["instasellUnitPrice"] is None
     assert flip["instasellRevenue"] is None
     assert flip["instasellProfit"] is None
     assert flip["instasellMargin"] is None
     assert flip["instasellBasis"] is None
+    # the market dump still prices the row
+    assert flip["dumpProfit"] == 700
 
 
-def test_instasell_is_none_without_a_sales_index_at_all():
+def test_instasell_is_none_without_a_price_table_at_all():
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
     flip = compute_flip(recipe([item("a", 1)]), market)
     assert flip["instasellProfit"] is None
@@ -372,9 +427,11 @@ def test_instasell_is_none_without_a_sales_index_at_all():
 
 
 def test_instasell_can_lose_money_while_listing_profits():
-    """The point of the column: a flip that only works if a buyer turns up."""
+    """The point of the column: a craft the server pays less for than it cost."""
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
-    flip = compute_flip(recipe([item("a", 1)]), market, sales=StubSales({"out": 50}))
+    flip = compute_flip(
+        recipe([item("a", 1)]), market, sell_prices=StubSellPrices({"out": 50})
+    )
     assert flip["profit"] == 400
     assert flip["instasellProfit"] == -50
     assert flip["instasellMargin"] < 0
@@ -382,12 +439,17 @@ def test_instasell_can_lose_money_while_listing_profits():
 
 def test_instasell_takes_the_same_fee():
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
-    flip = compute_flip(recipe([item("a", 1)]), market, fee_percent=10.0, sales=StubSales({"out": 400}))
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        fee_percent=10.0,
+        sell_prices=StubSellPrices({"out": 400}),
+    )
     assert flip["instasellFee"] == 40
     assert flip["instasellProfit"] == 260  # 400 - 100 - 40
 
 
-def test_instasell_sort_key_sinks_rows_with_no_sales():
+def test_instasell_sort_key_sinks_rows_without_a_fixed_price():
     rows = [
         {"instasellProfit": None, "item": "unknown"},
         {"instasellProfit": 5.0, "item": "small"},
@@ -395,6 +457,204 @@ def test_instasell_sort_key_sinks_rows_with_no_sales():
     ]
     ranked = sorted(rows, key=SORTS["instasellProfit"], reverse=True)
     assert [r["item"] for r in ranked] == ["big", "small", "unknown"]
+
+
+# ------------------------------------------------------------- confidence ----
+
+def test_confidence_is_high_for_a_listed_item_with_a_real_sell_price():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 400}),
+        index_age=0.0,
+        index_ttl=600.0,
+    )
+    assert flip["confidence"] >= 75
+    assert flip["confidenceLabel"] == "high"
+    # every material buyable and a real /sell price -> those factors max out
+    factors = {f["key"]: f for f in flip["confidenceFactors"]}
+    assert factors["costBasis"]["score"] == 1.0
+    assert factors["sellBasis"]["score"] == 1.0
+    assert factors["freshness"]["score"] == 1.0
+
+
+def test_confidence_is_low_without_a_sell_side_or_recorded_sales():
+    market = StubMarket({"a": entry(market_value=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market)
+    assert flip["confidence"] < 40
+    assert flip["confidenceLabel"] in {"low", "very low"}
+    factors = {f["key"]: f for f in flip["confidenceFactors"]}
+    assert factors["sellBasis"]["score"] == 0.0
+    assert factors["salesDepth"]["score"] == 0.0
+    assert factors["costBasis"]["score"] == 0.0  # nothing was buyable
+
+
+def test_confidence_falls_when_the_prices_disagree():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    agreed = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 500}),
+        sell_prices=StubSellPrices({"out": 500}),
+    )
+    disagreed = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 50_000}),
+        sell_prices=StubSellPrices({"out": 50_000}),
+    )
+    assert disagreed["confidence"] < agreed["confidence"]
+
+
+def test_confidence_rises_with_more_recorded_sales():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+
+    def with_sales(n):
+        sales = StubSales({"out": 400})
+        sales.entry = lambda name, n=n: {
+            "low": 400.0,
+            "median": 400.0,
+            "high": 400.0,
+            "sales": n,
+            "lastAt": "2026-10-01T00:00:00Z",
+        } if name == "out" else None
+        return compute_flip(recipe([item("a", 1)]), market, sales=sales)
+
+    assert with_sales(10)["confidence"] > with_sales(1)["confidence"]
+
+
+def test_confidence_is_capped_when_materials_cannot_be_bought():
+    """A cost built from market values is a guess, so the row cannot read as high."""
+    market = StubMarket({"a": entry(market_value=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 400}),
+        index_age=0.0,
+        index_ttl=600.0,
+    )
+    assert flip["estimated"] is True
+    assert flip["confidence"] <= 60
+    assert flip["confidenceLabel"] != "high"
+    assert any(f["key"] == "unbuyable" for f in flip["confidenceFactors"])
+
+
+def test_confidence_factors_are_weighted_and_explained():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 400}),
+    )
+    factors = flip["confidenceFactors"]
+    assert {f["key"] for f in factors} == {
+        "costBasis",
+        "sellBasis",
+        "salesDepth",
+        "agreement",
+        "freshness",
+    }
+    assert round(sum(f["weight"] for f in factors), 6) == 1.0
+    assert all(f["detail"] for f in factors), "every factor must say what it saw"
+    assert 0 <= flip["confidence"] <= 100
+
+
+def test_confidence_is_docked_for_a_tag_resolved_material():
+    """A tag material is the cheapest of several candidates, which is optimistic."""
+    market = StubMarket(
+        {
+            "a": entry(listing=100),
+            "b": entry(listing=100),
+            "out": entry(market_value=500),
+        }
+    )
+    plain = compute_flip(recipe([item("a", 1)]), market)
+    tagged = compute_flip(
+        recipe([{"tag": "planks", "options": ["a", "b"], "count": 1, "grid": [[0, 0]]}]),
+        market,
+    )
+    assert tagged["confidence"] < plain["confidence"]
+    factors = {f["key"]: f for f in tagged["confidenceFactors"]}
+    assert "resolved from a tag" in factors["costBasis"]["detail"]
+
+
+# ------------------------------------------------------- the sell price table ----
+
+def test_sell_price_table_merges_the_volume_copy_over_the_seed():
+    import json
+    import tempfile
+
+    from app.sellprices import SellPrices
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        table = os.path.join(tmp, "table.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump({"multiplier": 1.0, "items": {"oak_log": 300, "sand": 100}}, fh)
+        with open(table, "w", encoding="utf-8") as fh:
+            json.dump({"multiplier": 2.0, "items": {"oak_log": 999}}, fh)
+
+        prices = SellPrices(path=table, seed_path=seed, multiplier=1.0)
+        # the operator's copy wins, the seed still fills the gaps
+        assert prices.lookup("oak_log")["base"] == 999
+        assert prices.lookup("sand")["base"] == 100
+        # and its multiplier applies to items that do not override it
+        assert prices.lookup("sand")["payout"] == 200
+        assert prices.size() == 2
+
+
+def test_sell_price_table_reads_a_bare_number_and_rejects_junk():
+    import json
+    import tempfile
+
+    from app.sellprices import SellPrices
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "items": {
+                        "oak_log": 300,
+                        "Diamond": {"base": 1200, "source": "wiki"},
+                        "broken": {"source": "wiki"},
+                        "negative": -5,
+                    }
+                },
+                fh,
+            )
+        prices = SellPrices(path=None, seed_path=seed, multiplier=1.0)
+        assert prices.lookup("oak_log")["base"] == 300
+        assert prices.lookup("diamond")["base"] == 1200  # normalised to snake case
+        assert prices.lookup("broken") is None
+        assert prices.lookup("negative") is None
+        assert prices.size() == 2
+        assert len(prices.snapshot()["errors"]) == 2
+
+
+def test_sell_price_table_applies_a_per_item_multiplier():
+    import json
+    import tempfile
+
+    from app.sellprices import SellPrices
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "multiplier": 1.5,
+                    "items": {"oak_log": 100, "sand": {"base": 100, "mult": 3.0}},
+                },
+                fh,
+            )
+        prices = SellPrices(path=None, seed_path=seed, multiplier=1.0)
+        assert prices.payout("oak_log") == 150
+        assert prices.payout("sand") == 300
 
 
 # ---------------------------------------------------------------- the runner ----

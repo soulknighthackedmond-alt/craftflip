@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterable
 
+from . import confidence
 from .donut import prettify
 from .market import Market, ingredient_options
 
@@ -129,6 +130,9 @@ def compute_flip(
     market: Market,
     fee_percent: float = 0.0,
     sales: Any = None,
+    sell_prices: Any = None,
+    index_age: float | None = None,
+    index_ttl: float = 600.0,
 ) -> dict[str, Any] | None:
     """Cost, value and rank one recipe. None when it cannot be priced."""
     costs: list[dict[str, Any]] = []
@@ -152,8 +156,21 @@ def compute_flip(
     margin = profit / cost
     listed = [c for c in costs if c["source"] == "listing"]
 
-    # The same craft sold to whoever is buying right now instead of listed and
-    # waited on. None when the item has no recorded sales to price a dump from.
+    # The fixed /sell payout: the server's base price times your own multiplier for
+    # that item. It is the one exit that needs no other player, and because the
+    # server does not publish the base prices, an item with no entry in the table
+    # gets None rather than a guess. /sell also routes to a matching order when one
+    # pays more, but order data is retired upstream, so there is nothing to compare.
+    sell = sell_prices.lookup(recipe["output"]["item"]) if sell_prices is not None else None
+    sell_unit = sell["payout"] if sell else None
+    sell_revenue = round(sell_unit * out["count"], 4) if sell_unit else None
+    sell_fee = round(sell_revenue * fee_percent / 100.0, 4) if sell_revenue else None
+    sell_profit = (
+        round(sell_revenue - cost - (sell_fee or 0.0), 4) if sell_revenue is not None else None
+    )
+
+    # What the item has actually cleared at recently: the market's exit, not the
+    # server's. None until the sales index has looked this item up.
     dump_unit = out["dumpUnitPrice"]
     dump_revenue = round(dump_unit * out["count"], 4) if dump_unit else None
     dump_fee = round(dump_revenue * fee_percent / 100.0, 4) if dump_revenue else None
@@ -161,7 +178,7 @@ def compute_flip(
         round(dump_revenue - cost - (dump_fee or 0.0), 4) if dump_revenue is not None else None
     )
 
-    return {
+    flip: dict[str, Any] = {
         "item": recipe["output"]["item"],
         "displayName": out["displayName"],
         "recipeId": recipe["id"],
@@ -174,14 +191,25 @@ def compute_flip(
         "outputCount": out["count"],
         "costPerUnit": round(cost / out["count"], 4),
         "profitPerUnit": round(profit / out["count"], 4),
-        "instasellUnitPrice": dump_unit,
-        "instasellRevenue": dump_revenue,
-        "instasellFee": dump_fee,
-        "instasellProfit": dump_profit,
-        "instasellMargin": (dump_profit / cost) if dump_profit is not None else None,
-        "instasellBasis": getattr(sales, "basis", None) if dump_unit else None,
-        "instasellSales": out["dumpSales"],
-        "instasellLastAt": out["dumpLastAt"],
+        # the fixed server exit
+        "instasellUnitPrice": sell_unit,
+        "instasellRevenue": sell_revenue,
+        "instasellFee": sell_fee,
+        "instasellProfit": sell_profit,
+        "instasellMargin": (sell_profit / cost) if sell_profit is not None else None,
+        "instasellBasis": "server /sell base price" if sell_unit else None,
+        "instasellBasePrice": (sell or {}).get("base"),
+        "instasellMultiplier": (sell or {}).get("multiplier"),
+        "instasellSource": (sell or {}).get("source"),
+        "instasellNote": (sell or {}).get("note"),
+        # the market exit, from completed sales
+        "dumpUnitPrice": dump_unit,
+        "dumpRevenue": dump_revenue,
+        "dumpProfit": dump_profit,
+        "dumpMargin": (dump_profit / cost) if dump_profit is not None else None,
+        "dumpBasis": getattr(sales, "basis", None) if dump_unit else None,
+        "dumpSales": out["dumpSales"],
+        "dumpLastAt": out["dumpLastAt"],
         # true when a material had no live listing and its market value stood in
         "estimated": len(listed) < len(costs),
         # every material is buyable right now, so this flip can actually be executed
@@ -195,6 +223,8 @@ def compute_flip(
         # when the live listing behind "listed now" was observed upstream
         "listedAt": out["cheapestListingAt"],
     }
+    flip.update(confidence.score(flip, sell, index_age, index_ttl))
+    return flip
 
 
 SORTS = {
@@ -204,9 +234,14 @@ SORTS = {
     "revenue": lambda f: f["revenue"],
     "item": lambda f: f["item"],
     "profitPerUnit": lambda f: f["profitPerUnit"],
-    # rows with no recorded sales sort last rather than being treated as zero
+    "confidence": lambda f: f["confidence"],
+    # rows with no fixed sell price sort last rather than being treated as zero
     "instasellProfit": lambda f: (
         f["instasellProfit"] if f["instasellProfit"] is not None else float("-inf")
+    ),
+    # same for rows with no recorded sales to price a dump from
+    "dumpProfit": lambda f: (
+        f["dumpProfit"] if f["dumpProfit"] is not None else float("-inf")
     ),
 }
 
@@ -221,16 +256,19 @@ class FlipTable:
         fee_percent: float = 0.0,
         ttl: float = 30.0,
         sales: Any = None,
+        sell_prices: Any = None,
     ):
         self.market = market
         self.recipes = recipes
         self.fee_percent = fee_percent
         self.ttl = ttl
         self.sales = sales
+        self.sell_prices = sell_prices
         self._rows: list[dict[str, Any]] | None = None
         self._built_at: float | None = None
         self._index_built_at: float | None = None
         self._sales_revision: int | None = None
+        self._sell_revision: int | None = None
         self._lock = asyncio.Lock()
 
     def _is_fresh(self) -> bool:
@@ -245,7 +283,10 @@ class FlipTable:
         # price should surface without waiting for the next price refresh. Compare a
         # revision counter, not the last-pass timestamp: that stays None until a
         # whole pass finishes, which would keep an empty table looking fresh.
-        return self._sales_revision == getattr(self.sales, "revision", 0)
+        if self._sales_revision != getattr(self.sales, "revision", 0):
+            return False
+        # same for the /sell price table: an edit to it should show up immediately
+        return self._sell_revision == getattr(self.sell_prices, "revision", 0)
 
     async def rows(self) -> list[dict[str, Any]]:
         if self._is_fresh():
@@ -253,14 +294,26 @@ class FlipTable:
         async with self._lock:
             if self._is_fresh():
                 return self._rows or []
+            age = self.market.age
+            ttl = self.market.ttl
             built = self._dedupe(
-                compute_flip(r, self.market, self.fee_percent, self.sales) for r in self.recipes
+                compute_flip(
+                    r,
+                    self.market,
+                    self.fee_percent,
+                    self.sales,
+                    self.sell_prices,
+                    age,
+                    ttl,
+                )
+                for r in self.recipes
             )
             built.sort(key=lambda f: f["profit"], reverse=True)
             self._rows = built
             self._built_at = time.time()
             self._index_built_at = self.market.built_at
             self._sales_revision = getattr(self.sales, "revision", 0)
+            self._sell_revision = getattr(self.sell_prices, "revision", 0)
             return built
 
     @staticmethod
@@ -304,6 +357,7 @@ class FlipTable:
         q: str | None = None,
         min_profit: float | None = None,
         min_margin: float | None = None,
+        min_confidence: int | None = None,
         sort: str = "profit",
         limit: int = 100,
         profitable_only: bool = True,
@@ -317,6 +371,8 @@ class FlipTable:
             out = [r for r in out if r["profit"] >= min_profit]
         if min_margin is not None:
             out = [r for r in out if r["margin"] >= min_margin]
+        if min_confidence is not None:
+            out = [r for r in out if r["confidence"] >= min_confidence]
         if profitable_only and min_profit is None:
             out = [r for r in out if r["profit"] > 0]
         key = SORTS.get(sort, SORTS["profit"])

@@ -67,6 +67,13 @@ def main() -> int:
               f"basis={s.get('basis')!r} requests={s.get('requests')}")
         if s.get("lastError"):
             print(f"     sales lastError={s['lastError']}")
+        sp = status.get("sellPrices") or {}
+        print(f"     sellPrices={sp.get('items')} items multiplier={sp.get('multiplier')} "
+              f"sources={sp.get('sources')} volumeCopy={sp.get('tableExists')}")
+        if sp.get("errors"):
+            print(f"     sell price table errors={sp['errors']}")
+        if not sp.get("items"):
+            FAILED.append("the /sell price table is empty")
 
     crafts = call(base, "/api/crafts?limit=5")
     top_item = None
@@ -78,16 +85,28 @@ def main() -> int:
                   f"sale={row['revenue']:>12,.0f} profit={row['profit']:>12,.0f} "
                   f"margin={row['margin']*100:>7.1f}%"
                   f" instasell={'—' if insta is None else f'{insta:,.0f}'}"
+                  f" conf={row.get('confidence')}%"
                   f"{'  est' if row['estimated'] else ''}")
         if crafts.get("items"):
             top_item = crafts["items"][0]["item"]
-            if "instasellProfit" not in crafts["items"][0]:
-                FAILED.append("/api/crafts rows are missing instasellProfit")
+            first = crafts["items"][0]
+            for field in ("instasellProfit", "confidence", "confidenceLabel", "dumpProfit"):
+                if field not in first:
+                    FAILED.append(f"/api/crafts rows are missing {field}")
+            if not first.get("confidenceFactors"):
+                FAILED.append("/api/crafts rows are missing the confidence breakdown")
+            conf = first.get("confidence")
+            if not isinstance(conf, int) or not 0 <= conf <= 100:
+                FAILED.append(f"confidence out of range: {conf!r}")
         else:
             FAILED.append("/api/crafts returned no rows")
 
-    # ranking by the sell-side number has to be an accepted sort
+    # ranking by the sell-side number and by confidence both have to be accepted
     call(base, "/api/crafts?sort=instasellProfit&limit=3")
+    call(base, "/api/crafts?sort=dumpProfit&limit=3")
+    call(base, "/api/crafts?sort=confidence&limit=3")
+    call(base, "/api/crafts?minConfidence=50&limit=3")
+    call(base, "/api/crafts?minConfidence=101&limit=3", want=422)  # out of range
     call(base, "/api/crafts?sort=margin&limit=3")
     call(base, "/api/crafts?q=netherite&limit=5")
     call(base, "/api/crafts?minProfit=1000000&limit=3")
@@ -112,7 +131,15 @@ def main() -> int:
                   f"placedCells={placed} sales={len(sales)}")
             insta = flip.get("instasellProfit")
             print(f"       instasell={'—' if insta is None else format(insta, ',.0f')} "
-                  f"basis={flip.get('instasellBasis')!r}")
+                  f"basis={flip.get('instasellBasis')!r} "
+                  f"dump={'—' if flip.get('dumpProfit') is None else format(flip['dumpProfit'], ',.0f')}")
+            conf = flip.get("confidence")
+            print(f"       confidence={conf}% ({flip.get('confidenceLabel')}) "
+                  f"from {len(flip.get('confidenceFactors') or [])} factor(s)")
+            sell = detail.get("sellPrice")
+            print(f"       sellPrice={'none in the table' if not sell else sell}")
+            if conf is None:
+                FAILED.append(f"top item {top_item} has no confidence")
             if summary:
                 print(f"       salesSummary: {summary.get('sales')} on record, "
                       f"low={summary.get('low')} median={summary.get('median')} "
@@ -142,6 +169,9 @@ def main() -> int:
         if f.get("instasellProfit") is not None:
             print(f"       instasell at {f['instasellUnitPrice']:,.0f} x{f['outputCount']} "
                   f"= {f['instasellRevenue']:,.0f}  profit {f['instasellProfit']:,.0f}")
+        else:
+            print("       instasell: no fixed /sell price for this item")
+        print(f"       confidence {f.get('confidence')}% ({f.get('confidenceLabel')})")
     else:
         print("     netherite_ingot: not costable in this run")
 

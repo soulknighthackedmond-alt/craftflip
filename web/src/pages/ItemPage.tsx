@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import { type Detail, type HistoryResponse } from '../api'
 import CraftGrid from '../components/CraftGrid'
+import Confidence from '../components/Confidence'
 import Sparkline from '../components/Sparkline'
 import { BackLink } from '../Layout'
 import { ageFrom, ageSeconds, coins, coinsExact, count, pct, shortDate, titleise } from '../format'
@@ -26,9 +27,19 @@ export default function ItemPage() {
         <h1>{d?.displayName ?? titleise(name)}</h1>
         {d?.recipeId ? <span className="id">{d.recipeId}</span> : null}
         {flip ? (
-          <span className={`num ${up ? 'profit up' : 'profit down'}`} style={{ marginLeft: 'auto', fontSize: 22 }}>
-            {coinsExact(flip.profit)}
-          </span>
+          <>
+            <Confidence
+              score={flip.confidence}
+              label={flip.confidenceLabel}
+              factors={flip.confidenceFactors}
+            />
+            <span
+              className={`num ${up ? 'profit up' : 'profit down'}`}
+              style={{ marginLeft: 'auto', fontSize: 22 }}
+            >
+              {coinsExact(flip.profit)}
+            </span>
+          </>
         ) : null}
       </div>
 
@@ -136,15 +147,24 @@ export default function ItemPage() {
                     </div>
                     <div className="mline">
                       <span className="k">
-                        Instasell ({flip.instasellBasis ?? 'no recent sales'})
+                        Instasell — server /sell
+                        {flip.instasellBasePrice !== null
+                          ? ` at ${coinsExact(flip.instasellUnitPrice ?? 0)} each`
+                          : ''}
                       </span>
                       <span className="v">
-                        {flip.instasellRevenue === null ? '—' : coinsExact(flip.instasellRevenue)}
+                        {flip.instasellRevenue === null
+                          ? 'no fixed price for this item'
+                          : coinsExact(flip.instasellRevenue)}
                       </span>
                     </div>
                     <div
                       className={`mline total ${
-                        flip.instasellProfit === null ? '' : flip.instasellProfit >= 0 ? 'up' : 'down'
+                        flip.instasellProfit === null
+                          ? ''
+                          : flip.instasellProfit >= 0
+                            ? 'up'
+                            : 'down'
                       }`}
                     >
                       <span className="k">Instasell profit</span>
@@ -152,6 +172,49 @@ export default function ItemPage() {
                         {flip.instasellProfit === null ? '—' : coinsExact(flip.instasellProfit)}
                       </span>
                     </div>
+                    <div className="mline">
+                      <span className="k">
+                        Sold to players (
+                        {flip.dumpSales ? `${flip.dumpSales} recent sales` : 'none recorded'})
+                      </span>
+                      <span className="v">
+                        {flip.dumpRevenue === null ? '—' : coinsExact(flip.dumpRevenue)}
+                      </span>
+                    </div>
+                    <div
+                      className={`mline total ${
+                        flip.dumpProfit === null ? '' : flip.dumpProfit >= 0 ? 'up' : 'down'
+                      }`}
+                    >
+                      <span className="k">Profit if dumped on the market</span>
+                      <span className="v">
+                        {flip.dumpProfit === null ? '—' : coinsExact(flip.dumpProfit)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="panel">
+                  <h4>
+                    Confidence — {flip.confidence}% ({flip.confidenceLabel})
+                  </h4>
+                  <p className="panel-note">
+                    Nothing here is a quote. This blends the inputs that decide whether the
+                    flip is real: what the materials cost, what the sell side is worth, how
+                    many sales back it, whether the independent price readings agree, and how
+                    fresh the index is.
+                  </p>
+                  <div className="factors wide">
+                    {flip.confidenceFactors.map((f) => (
+                      <div className="factor" key={f.key}>
+                        <span className="fk">{f.label}</span>
+                        <span className="ftrack" aria-hidden="true">
+                          <i style={{ width: `${Math.round(f.score * 100)}%` }} />
+                        </span>
+                        <span className="fv num">{f.contribution} pts</span>
+                        <span className="fd">{f.detail}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
@@ -235,6 +298,40 @@ export default function ItemPage() {
                   {history.data?.note ??
                     'History is still building — a point is recorded each time the index refreshes.'}
                 </div>
+              )}
+            </div>
+
+            <div className="panel">
+              <h4>Fixed /sell price</h4>
+              {d.sellPrice ? (
+                <>
+                  <div className="ledger-math">
+                    <div className="mline">
+                      <span className="k">Base price</span>
+                      <span className="v">{coinsExact(d.sellPrice.base)}</span>
+                    </div>
+                    <div className="mline">
+                      <span className="k">Your multiplier</span>
+                      <span className="v">{d.sellPrice.multiplier}×</span>
+                    </div>
+                    <div className="mline total up">
+                      <span className="k">Payout per item</span>
+                      <span className="v">{coinsExact(d.sellPrice.payout)}</span>
+                    </div>
+                    <div className="mline">
+                      <span className="k">Source</span>
+                      <span className="v">{d.sellPrice.source ?? 'unattributed'}</span>
+                    </div>
+                  </div>
+                  {d.sellPrice.note ? <p className="panel-note">{d.sellPrice.note}</p> : null}
+                </>
+              ) : (
+                <p className="panel-note">
+                  Not in the price table, so this item has no known instant payout. The server
+                  does not publish these in bulk — read one in game with{' '}
+                  <code>/worth {d.item}</code> and add it to <code>sell_prices.json</code>. Until
+                  then the ledger shows what the item has actually sold for instead.
+                </p>
               )}
             </div>
 

@@ -66,30 +66,77 @@ margin  = profit / cost
 
 ### The sell side (instasell)
 
+There are two instant exits on DonutSMP and the ledger prices both, separately.
+
+**The fixed `/sell` price** — what the server itself pays:
+
 ```
-instasell price   = median price the output has actually sold for recently
-instasell revenue = instasell price × output count
-instasell profit  = instasell revenue − cost − fee
+/sell payout     = server base price × your own multiplier for that item
+instasell profit = payout × output count − cost − fee
 ```
 
-The listing side above is priced off donut.auction's market-value index, which is a
-*smoothed* figure: for thin items it can sit a long way from what the item really
-changes hands for. `pink_bed`'s index read 39,890 while ten actual sales went through
-at 250,000–800,000. The instasell column is the reality check — a row can show a
-healthy listing profit and a *negative* instasell profit, which means the flip only
-pays if a buyer turns up at the index price.
+`/sell` is the only exit that needs no other player, so it is the number worth
+knowing. The server does not publish the base prices and no live feed carries them:
+donut.auction's order data is retired, `lootseller.io` (the last order-book feed)
+retired on 2026-09-29, and `donutsmp.finance` is a frozen 2026-06-25 snapshot whose
+crawler reports `running: false`. So they live in a file you own:
 
-DonutSMP has **no public bid side**. donut.auction retired its order data (its
-`/orders` page says "Order data has been retired", `/v1/orders/items/{id}/prices` is
-404, and `/v2/orders/search/` returns an empty list), and the official
-`api.donutsmp.net` exposes auction listings and transactions only. So the only
-sell-side signal available is the completed-sales feed, and it costs one request per
-item.
+```
+data/sell_prices.json          # shipped in the image, seeded with the known values
+$DATA_DIR/sell_prices.json     # optional volume copy, merged over it entry by entry
+```
 
-That is far too expensive to fold into the price refresh, so `SalesIndex`
-(`app/sales.py`) fills on its own slower cycle: ~875 outputs at a 1s gap, an hour
-TTL, about 0.25 requests/second. Until an item's turn comes round its instasell
-figures are `null` and the ledger shows a dash.
+Read a value in game with `/worth <item>` and add it. Both files are reloaded the
+moment they change — no rebuild, no restart. An entry is a bare number, or an object:
+
+```json
+{ "oak_log": 300,
+  "diamond": { "base": 1200, "mult": 2.4, "source": "in-game", "note": "mine" } }
+```
+
+`mult` is your own `/sellmulti` level for that item (1.0×–3.0×); it falls back to the
+file's top-level `multiplier`, then to `SELL_MULTIPLIER`. `source` is one of
+`in-game`, `wiki` or `community`, and it feeds the confidence score. **An item that is
+not in the table gets `null`, never a guess** — `/shop` prices are what the server
+*charges*, a different number, so they cannot stand in.
+
+**The market dump** — what players have actually paid, kept as a separate column
+(`dump*` fields):
+
+```
+dump price  = median unit price of the item's recent completed sales
+dump profit = dump price × output count − cost − fee
+```
+
+The listing side is priced off donut.auction's market-value index, which is
+*smoothed*: for thin items it can sit a long way from reality. `pink_bed`'s index read
+39,890 while ten actual sales went through at 250,000–800,000. The dump column is the
+reality check, and a row can show a healthy listing profit with a *negative* dump
+profit — meaning the flip only pays if a buyer turns up at the index price.
+
+The completed-sales feed is the only sell-side data upstream offers and it costs one
+request per item, so `SalesIndex` (`app/sales.py`) fills on its own slower cycle:
+~875 outputs at a 1s gap, an hour TTL, about 0.25 requests/second. Until an item's
+turn comes round its dump figures are `null` and the ledger shows a dash.
+
+### Confidence
+
+Every row carries a 0–100 score, because the inputs are not equivalent: a fixed
+`/sell` price is a fact, a smoothed index is an estimate, and a material nobody is
+selling is a guess. It is a weighted blend (`app/confidence.py`):
+
+| factor | weight | what it reads |
+| --- | --- | --- |
+| cost basis | 34% | share of materials with a live listing, docked for tag-resolved slots |
+| sell price | 26% | a fixed `/sell` price (by source), else how many sales back the dump |
+| sales depth | 12% | how many completed sales back the number, saturating |
+| agreement | 16% | whether the index, the sales median and `/sell` agree, in log space |
+| freshness | 12% | index age against its TTL |
+
+A row whose materials cannot all be bought right now is a guess about the cost
+whatever the sell side says, so it is capped at 60% and can never read *high*. The
+breakdown rides in the tooltip of the `conf` column and comes back as
+`confidenceFactors`, so a score can be argued with rather than just believed.
 
 ### Recipe data
 
@@ -108,26 +155,30 @@ the pinned version.
 
 | Endpoint | What it gives you |
 | --- | --- |
-| `GET /api/crafts` | the ranked table; `sort=profit\|margin\|cost\|revenue\|item\|profitPerUnit\|instasellProfit` |
-| `GET /api/crafts/{item}` | one item: recipe grid with priced slots, full arithmetic, and its recent sales |
+| `GET /api/crafts` | the ranked table; `sort=profit\|margin\|cost\|revenue\|item\|profitPerUnit\|instasellProfit\|dumpProfit\|confidence` |
+| `GET /api/crafts/{item}` | one item: recipe grid with priced slots, full arithmetic, its fixed `/sell` price, and its recent sales |
 | `GET /api/crafts/{item}/history` | craftflip's own recorded profit history for that flip |
 | `GET /api/items/search?q=` | item name lookup |
 | `GET /api/market/{item}` | the raw price index entry for an item |
-| `GET /api/status` | index age, request counts, sales-index fill state |
+| `GET /api/status` | index age, request counts, sales-index fill state, the `/sell` price table |
 | `GET /health` | liveness plus index sizes |
 
-Every flip row carries `instasellProfit`, `instasellUnitPrice`, `instasellBasis` and
-`instasellSales` alongside the listing-side `profit`. `instasellProfit` is `null`
-until the sales index has looked that item up.
+Every flip row carries `instasellProfit`, `instasellUnitPrice`, `instasellBasePrice`,
+`instasellMultiplier`, `instasellSource` and `instasellBasis` for the fixed `/sell`
+exit, and `dumpProfit`, `dumpUnitPrice`, `dumpSales` and `dumpLastAt` for the market
+dump, alongside the listing-side `profit`. Both sell-side numbers are `null` when
+there is nothing to price them from — the fixed one until the item is in the price
+table, the dump until the sales index has looked it up. Every row also carries
+`confidence`, `confidenceLabel` and `confidenceFactors`.
 
 | endpoint | gives |
 | --- | --- |
-| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`\|`instasellProfit`), `limit`, `profitableOnly` |
-| `GET /api/crafts/{item}` | one flip: recipe grid, per-ingredient breakdown, recent sales |
+| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `minConfidence` (0–100), `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`\|`instasellProfit`\|`dumpProfit`\|`confidence`), `limit`, `profitableOnly` |
+| `GET /api/crafts/{item}` | one flip: recipe grid, per-ingredient breakdown, recent sales, and the item's fixed `/sell` price |
 | `GET /api/crafts/{item}/history` | profit and margin over time (`days`) |
 | `GET /api/items/search` | live passthrough to donut.auction search, ranked |
 | `GET /api/market/{item}` | the raw index entry for one item |
-| `GET /api/status` | index size, age, request count, upstream health, sales-index fill |
+| `GET /api/status` | index size, age, request count, upstream health, sales-index fill, `/sell` price table |
 | `GET /health` | liveness |
 | `GET /docs` | interactive OpenAPI docs |
 
@@ -185,6 +236,9 @@ python tools/verify_craftflip.py http://192.168.50.60:8789
 | `DONUT_FEE_PERCENT` | `0` | DonutSMP's cut on a completed sale |
 | `REQUEST_SPACING_SECONDS` | `0.25` | gap between upstream requests |
 | `MAX_REQUESTS_PER_REFRESH` | `1400` | ceiling on requests in one refresh |
+| `SELL_PRICES_PATH` | `$DATA_DIR/sell_prices.json` | the `/sell` table you edit; reloaded on change |
+| `SELL_PRICES_SEED_PATH` | `<repo>/data/sell_prices.json` | the shipped table it merges over |
+| `SELL_MULTIPLIER` | `1.0` | your `/sellmulti` level, unless an entry overrides it |
 | `DATA_DIR` | `<repo>/data` | flip history log |
 | `HISTORY_TOP_N` | `200` | flips recorded per refresh |
 | `HISTORY_RETENTION_DAYS` | `14` | history kept |

@@ -123,7 +123,7 @@ a { color: inherit; text-decoration: none; }
 /* The thesis: the market's current arbitrage surface, stated as three facts. */
 .spread {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(186px, 1fr));
   border-bottom: 1px solid var(--hair);
 }
 
@@ -225,14 +225,15 @@ a { color: inherit; text-decoration: none; }
 .row {
   display: grid;
   grid-template-columns:
-    minmax(150px, 1.7fr)   /* item      */
-    104px                  /* cost      */
-    104px                  /* sells for */
-    116px                  /* profit    */
-    148px                  /* margin    */
-    110px                  /* dump      */
-    104px                  /* listed    */
-    62px;                  /* age       */
+    minmax(150px, 1.7fr)   /* item       */
+    104px                  /* cost       */
+    104px                  /* sells for  */
+    116px                  /* profit     */
+    136px                  /* margin     */
+    108px                  /* instasell  */
+    78px                   /* confidence */
+    104px                  /* listed     */
+    62px;                  /* age        */
   gap: 14px;
   align-items: center;
 }
@@ -656,7 +657,7 @@ a { color: inherit; text-decoration: none; }
     grid-template-columns: 1fr auto;
     grid-template-areas:
       'item   profit'
-      'meta   meta'
+      'meta   conf'
       'dump   dump';
     row-gap: 6px;
     align-items: baseline;
@@ -664,10 +665,10 @@ a { color: inherit; text-decoration: none; }
 
   .row .item { grid-area: item; }
   .row .profit { grid-area: profit; font-size: 15px; }
-  .row .cost, .row .revenue { display: none; }
+  .row .cost, .row .revenue, .row .listed, .row .age { display: none; }
   .row .margin { grid-area: meta; justify-content: flex-start; }
-  .row .dump { grid-area: dump; justify-self: end; font-size: 13px; }
-  .row .listed, .row .age { display: none; }
+  .row .instasell { grid-area: dump; justify-self: end; font-size: 13px; }
+  .row .conf { grid-area: conf; justify-self: end; }
 
   .ruler { justify-content: flex-start; }
   .grid3 { grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px); }
@@ -680,3 +681,37 @@ a { color: inherit; text-decoration: none; }
   * { animation: none !important; transition: none !important; }
   .bom { animation: none; }
 }
+
+/* ------------------------------------------------------------ confidence ---- */
+
+/* How far a row's inputs can be trusted: a bar and a number, with the breakdown
+   in the tooltip. Four steps rather than a gradient -- the score is a coarse
+   judgement and should not look more precise than it is. */
+.conf { display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
+.conf .bar { position: relative; width: 30px; height: 3px; background: var(--hair-2); flex: none; }
+.conf .bar i { position: absolute; inset: 0 auto 0 0; background: var(--muted-dim); }
+.conf .pc { font-size: 12px; color: var(--muted); }
+.conf.high .bar i { background: var(--profit); }
+.conf.high .pc { color: var(--profit); }
+.conf.medium .bar i { background: var(--muted); }
+.conf.low .bar i, .conf.verylow .bar i { background: var(--loss); }
+.conf.low .pc, .conf.verylow .pc { color: var(--muted-dim); }
+
+/* the breakdown: one bar per factor, and the points it contributed */
+.factors { display: grid; gap: 7px; margin-top: 13px; }
+.factor {
+  display: grid;
+  grid-template-columns: 104px 1fr 62px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.factor .fk { font-family: var(--ui); letter-spacing: 0.02em; }
+.factor .ftrack { position: relative; height: 3px; background: var(--hair-2); }
+.factor .ftrack i { position: absolute; inset: 0 auto 0 0; background: var(--muted); }
+.factor .fv { text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--muted-dim); }
+.factors.wide .fd { grid-column: 2 / -1; font-size: 11.5px; color: var(--muted-dim); margin-top: -3px; }
+
+.panel-note { font-size: 12.5px; color: var(--muted-dim); line-height: 1.65; margin: 10px 0 0; }
+.panel-note code { font-family: var(--mono); font-size: 12px; color: var(--muted); }

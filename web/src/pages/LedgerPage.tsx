@@ -11,6 +11,7 @@ export default function LedgerPage() {
   const [q, setQ] = useState('')
   const [minProfit, setMinProfit] = useState('')
   const [minMargin, setMinMargin] = useState('')
+  const [minConf, setMinConf] = useState('')
   const [profitableOnly, setProfitableOnly] = useState(true)
   const [buyableOnly, setBuyableOnly] = useState(false)
   const [instasellOnly, setInstasellOnly] = useState(false)
@@ -22,11 +23,13 @@ export default function LedgerPage() {
     const needle = q.trim().toLowerCase().replace(/\s+/g, '_')
     const mp = minProfit.trim() === '' ? null : Number(minProfit)
     const mm = minMargin.trim() === '' ? null : Number(minMargin) / 100
+    const mc = minConf.trim() === '' ? null : Number(minConf)
 
     let out: Flip[] = all
     if (needle) out = out.filter((f) => f.item.includes(needle))
     if (mp !== null && Number.isFinite(mp)) out = out.filter((f) => f.profit >= mp)
     if (mm !== null && Number.isFinite(mm)) out = out.filter((f) => f.margin >= mm)
+    if (mc !== null && Number.isFinite(mc)) out = out.filter((f) => f.confidence >= mc)
     if (profitableOnly && mp === null) out = out.filter((f) => f.profit > 0)
     if (buyableOnly) out = out.filter((f) => f.actionable)
     if (instasellOnly) out = out.filter((f) => (f.instasellProfit ?? 0) > 0)
@@ -42,7 +45,7 @@ export default function LedgerPage() {
         ? String(key(a)).localeCompare(String(key(b)))
         : (key(b) as number) - (key(a) as number),
     )
-  }, [all, q, minProfit, minMargin, profitableOnly, buyableOnly, instasellOnly, sort])
+  }, [all, q, minProfit, minMargin, minConf, profitableOnly, buyableOnly, instasellOnly, sort])
 
   // The spread states the whole market, not the filtered view. Margins from
   // estimated costs are excluded when there is anything genuinely buyable, since a
@@ -59,14 +62,23 @@ export default function LedgerPage() {
       (best, f) => (best === null || f.profit > best.profit ? f : best),
       null,
     )
-    // instasell: a row only counts when it still profits at the median price the
-    // output has actually sold for recently -- no estimate, no waiting for a buyer
+    // instasell: a row only counts when it still profits at the price the server
+    // actually pays for it. That is a guaranteed exit, so it is the strictest
+    // measure here -- most items have no published /sell price at all.
     const instasold = profitable.filter((f) => (f.instasellProfit ?? 0) > 0)
     const instasoldBest = instasold.reduce<Flip | null>(
       (best, f) =>
         best === null || (f.instasellProfit ?? 0) > (best.instasellProfit ?? 0) ? f : best,
       null,
     )
+    // and the softer measure: still profits at the median price it has actually
+    // sold for lately, which needs a buyer but needs no fixed server price
+    const dumpable = profitable.filter((f) => (f.dumpProfit ?? 0) > 0)
+    const priced = profitable.filter((f) => f.instasellProfit !== null)
+    const avgConfidence =
+      profitable.length > 0
+        ? profitable.reduce((sum, f) => sum + f.confidence, 0) / profitable.length
+        : 0
     return {
       buyable: buyable.length,
       estimatedOnly: profitable.length - buyable.length,
@@ -74,6 +86,9 @@ export default function LedgerPage() {
       biggest,
       instasellable: instasold.length,
       instasoldBest,
+      priced: priced.length,
+      dumpable: dumpable.length,
+      avgConfidence,
       usingEstimated: buyable.length === 0,
     }
   }, [all])
@@ -138,12 +153,27 @@ export default function LedgerPage() {
                 <Link to={`/item/${spread.instasoldBest.item}`}>
                   {titleise(spread.instasoldBest.item)}
                 </Link>{' '}
-                — {coinsExact(spread.instasoldBest.instasellProfit ?? 0)} at the median recent
-                sale
+                — {coinsExact(spread.instasoldBest.instasellProfit ?? 0)} at the server's /sell
+                price
               </>
             ) : (
-              'nothing clears at the price these items actually sold for'
+              <>
+                nothing clears the server's /sell price yet · {count(spread.dumpable)} would at
+                the median recent sale
+              </>
             )}
+            {' · '}
+            {count(spread.priced)} of {count(spread.estimatedOnly + spread.buyable)} items have a
+            published /sell price
+          </div>
+        </div>
+        <div>
+          <span className="k">Average confidence</span>
+          <span className="v">
+            <Num value={spread.avgConfidence} format={(n) => `${Math.round(n)}%`} />
+          </span>
+          <div className="sub">
+            across every profitable row · hover the bar in any row for the breakdown
           </div>
         </div>
       </section>
@@ -180,6 +210,17 @@ export default function LedgerPage() {
             inputMode="numeric"
           />
         </div>
+        <div className="field">
+          <label htmlFor="mc">Min confidence %</label>
+          <input
+            id="mc"
+            value={minConf}
+            onChange={(e) => setMinConf(e.target.value)}
+            placeholder="any"
+            inputMode="numeric"
+            title="how much the row's inputs can be trusted, 0-100"
+          />
+        </div>
         <label className="toggle">
           <input
             type="checkbox"
@@ -198,7 +239,7 @@ export default function LedgerPage() {
         </label>
         <label
           className="toggle"
-          title="only flips that still profit at the median price the output has actually sold for recently"
+          title="only flips that still profit at the price the server pays for them via /sell"
         >
           <input
             type="checkbox"

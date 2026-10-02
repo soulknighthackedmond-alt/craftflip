@@ -25,6 +25,17 @@ export interface OutputValue {
   itemId: string | null
 }
 
+export interface ConfidenceFactor {
+  key: string
+  label: string
+  /** 0-1, this factor's own reading */
+  score: number
+  weight: number
+  /** points this factor contributed to the final 0-100 score */
+  contribution: number
+  detail: string
+}
+
 export interface Flip {
   item: string
   displayName: string
@@ -38,17 +49,33 @@ export interface Flip {
   outputCount: number
   costPerUnit: number
   profitPerUnit: number
-  /** what the output fetches if it is dumped now rather than listed and waited on.
-   *  Null until the sales index has looked this item up. */
+  /** what the server's /sell pays for this item: its base price times your own
+   *  multiplier for it. Null when the item has no entry in the price table --
+   *  absent means unknown, not zero. */
   instasellUnitPrice: number | null
   instasellRevenue: number | null
   instasellFee: number | null
   instasellProfit: number | null
   instasellMargin: number | null
-  /** how the dump price was derived, e.g. "lowest of recent sales" */
   instasellBasis: string | null
-  instasellSales: number | null
-  instasellLastAt: string | null
+  instasellBasePrice: number | null
+  instasellMultiplier: number | null
+  /** where the base price came from: in-game (/worth), wiki or community */
+  instasellSource: 'in-game' | 'wiki' | 'community' | null
+  instasellNote: string | null
+  /** the market exit instead: the median price this item actually sold at.
+   *  Null until the sales index has looked the item up. */
+  dumpUnitPrice: number | null
+  dumpRevenue: number | null
+  dumpProfit: number | null
+  dumpMargin: number | null
+  dumpBasis: string | null
+  dumpSales: number | null
+  dumpLastAt: string | null
+  /** 0-100, how much the inputs behind this row can be trusted */
+  confidence: number
+  confidenceLabel: 'high' | 'medium' | 'low' | 'very low'
+  confidenceFactors: ConfidenceFactor[]
   estimated: boolean
   /** every material is buyable right now, so this flip can actually be executed */
   actionable: boolean
@@ -113,11 +140,21 @@ export interface SalesSummary {
   lastAt?: string | null
 }
 
+export interface SellPrice {
+  base: number
+  multiplier: number
+  payout: number
+  source: 'in-game' | 'wiki' | 'community' | null
+  note: string | null
+}
+
 export interface Detail {
   item: string
   displayName: string
   flip: Flip | null
   craftable: boolean
+  /** the fixed /sell price for this item, if the table has one */
+  sellPrice?: SellPrice | null
   grid?: Grid
   recipeId?: string
   recipeType?: string
@@ -158,10 +195,34 @@ export interface StatusResponse {
     lastError: string | null
   }
   table: { recipesConsidered: number; flipsFound: number; computedAt: string | null; feePercent: number }
+  sales: {
+    priced: number
+    tracked: number
+    basis: string
+    ttlSeconds: number
+    requests: number
+    lastError: string | null
+  }
+  /** the fixed /sell price table, and whether the volume copy is in play */
+  sellPrices: {
+    items: number
+    multiplier: number
+    tablePath: string | null
+    tableExists: boolean
+    seedPath: string | null
+    sources: string[]
+    errors: string[]
+    revision: number
+  }
   history: { available: boolean; dir: string; topN: number; writes: number; lastError: string | null }
   recipes: { mcVersion: string | null; generatedAt: string | null; sha256: string | null } | null
   recipesError: string | null
-  config: { indexTtlSeconds: number; flipsTtlSeconds: number; feePercent: number }
+  config: {
+    indexTtlSeconds: number
+    flipsTtlSeconds: number
+    feePercent: number
+    sellMultiplier: number
+  }
 }
 
 async function get<T>(path: string): Promise<T> {

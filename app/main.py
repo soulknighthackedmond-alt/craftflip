@@ -21,6 +21,7 @@ from .flips import FlipTable, RecipeDataError, load_recipes, recipe_grid
 from .history import FlipHistory
 from .market import Market
 from .sales import SalesIndex
+from .sellprices import SellPrices
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("craftflip")
@@ -84,13 +85,30 @@ async def lifespan(app: FastAPI):
         spacing=config.SALES_SPACING_SECONDS,
         max_per_cycle=config.SALES_MAX_PER_CYCLE,
     )
+    sell_prices = SellPrices(
+        path=config.SELL_PRICES_PATH,
+        seed_path=config.SELL_PRICES_SEED_PATH,
+        multiplier=config.SELL_MULTIPLIER,
+    )
     table = FlipTable(
-        market, doc["recipes"], config.DONUT_FEE_PERCENT, config.FLIPS_TTL_SECONDS, sales
+        market,
+        doc["recipes"],
+        config.DONUT_FEE_PERCENT,
+        config.FLIPS_TTL_SECONDS,
+        sales,
+        sell_prices,
     )
     history = FlipHistory(config.DATA_DIR, config.HISTORY_TOP_N, config.HISTORY_RETENTION_DAYS)
 
     state.update(
-        {"client": client, "market": market, "table": table, "sales": sales, "history": history}
+        {
+            "client": client,
+            "market": market,
+            "table": table,
+            "sales": sales,
+            "history": history,
+            "sell_prices": sell_prices,
+        }
     )
     await market.start()
     await sales.start(client, market)
@@ -126,6 +144,7 @@ def _require_ready() -> None:
 async def health() -> dict[str, Any]:
     market: Market | None = state.get("market")
     sales: SalesIndex | None = state.get("sales")
+    sell_prices: SellPrices | None = state.get("sell_prices")
     ok = bool(market and market.index)
     return {
         "status": "ok" if ok and not state.get("recipes_error") else "degraded",
@@ -134,6 +153,7 @@ async def health() -> dict[str, Any]:
         "recipesError": state.get("recipes_error"),
         "indexSize": len(market.index) if market else 0,
         "salesIndexSize": sales.size() if sales else 0,
+        "sellPricesLoaded": sell_prices.size() if sell_prices else 0,
     }
 
 
@@ -144,6 +164,7 @@ async def status() -> dict[str, Any]:
     table: FlipTable = state["table"]
     history: FlipHistory = state["history"]
     sales: SalesIndex = state["sales"]
+    sell_prices: SellPrices = state["sell_prices"]
     return {
         "service": "craftflip",
         "version": __version__,
@@ -151,6 +172,7 @@ async def status() -> dict[str, Any]:
         "source": {"site": "https://donut.auction", "upstream": config.UPSTREAM_BASE},
         "market": market.snapshot(),
         "sales": sales.snapshot(),
+        "sellPrices": sell_prices.snapshot(),
         "table": table.stats(),
         "history": history.status(),
         "recipes": state.get("recipes_meta"),
@@ -159,6 +181,7 @@ async def status() -> dict[str, Any]:
             "indexTtlSeconds": config.INDEX_TTL_SECONDS,
             "flipsTtlSeconds": config.FLIPS_TTL_SECONDS,
             "feePercent": config.DONUT_FEE_PERCENT,
+            "sellMultiplier": config.SELL_MULTIPLIER,
             "requestSpacingSeconds": config.REQUEST_SPACING_SECONDS,
             "maxRequestsPerRefresh": config.MAX_REQUESTS_PER_REFRESH,
         },
@@ -171,8 +194,13 @@ async def crafts(
     q: str | None = None,
     minProfit: float | None = None,
     minMargin: float | None = None,
+    minConfidence: int | None = Query(None, ge=0, le=100),
     sort: str = Query(
-        "profit", pattern="^(profit|margin|cost|revenue|item|profitPerUnit|instasellProfit)$"
+        "profit",
+        pattern=(
+            "^(profit|margin|cost|revenue|item|profitPerUnit|confidence|"
+            "instasellProfit|dumpProfit)$"
+        ),
     ),
     limit: int = Query(100, ge=1, le=500),
     profitableOnly: bool = True,
@@ -185,6 +213,7 @@ async def crafts(
         q=q,
         min_profit=minProfit,
         min_margin=minMargin,
+        min_confidence=minConfidence,
         sort=sort,
         limit=limit,
         profitable_only=profitableOnly,
@@ -240,6 +269,9 @@ async def craft_detail(item_name: str) -> dict[str, Any]:
         "displayName": prettify(name),
         "flip": flip,
         "craftable": recipe is not None,
+        # the fixed /sell price for this item, if one is in the table. Shown even for
+        # items with no craftable recipe, since it stands on its own.
+        "sellPrice": state["sell_prices"].lookup(name),
     }
     if recipe is not None:
         out["grid"] = recipe_grid(recipe, market)
@@ -314,11 +346,38 @@ async def market_item(item_name: str) -> dict[str, Any]:
 # ------------------------------------------------------------------- SPA ----
 _WEB = Path(config.WEB_DIST)
 
+# The content type is set explicitly rather than guessed. Python's mimetypes reads
+# the Windows registry, where .js is registered as text/plain, and a browser refuses
+# to execute a module script served with a non-JS type -- so on a Windows host the
+# SPA loaded and then silently did nothing. Linux gets .js right, which is why this
+# only ever showed up locally.
+_MEDIA_TYPES = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".mjs": "text/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".map": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain",
+}
+
+
+def _asset(path: Path) -> FileResponse:
+    return FileResponse(path, media_type=_MEDIA_TYPES.get(path.suffix.lower(), "text/html"))
+
 
 @app.get("/")
 async def index() -> Any:
     if (_WEB / "index.html").exists():
-        return FileResponse(_WEB / "index.html")
+        return _asset(_WEB / "index.html")
     return JSONResponse(
         status_code=503,
         content={
@@ -335,7 +394,7 @@ async def spa(full_path: str) -> Any:
         raise HTTPException(status_code=404, detail="not found")
     candidate = (_WEB / full_path).resolve()
     if _WEB.exists() and str(candidate).startswith(str(_WEB.resolve())) and candidate.is_file():
-        return FileResponse(candidate)
+        return _asset(candidate)
     if (_WEB / "index.html").exists():
-        return FileResponse(_WEB / "index.html")
+        return _asset(_WEB / "index.html")
     raise HTTPException(status_code=404, detail="not found")
