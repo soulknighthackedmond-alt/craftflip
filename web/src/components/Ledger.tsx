@@ -9,15 +9,22 @@ export type SortKey =
   | 'item'
   | 'profitPerUnit'
   | 'instasellProfit'
+  | 'orderProfit'
+  | 'orderTotalProfit'
   | 'confidence'
 
-const COLUMNS: { key: SortKey | null; label: string; left?: boolean }[] = [
+const COLUMNS: { key: SortKey | null; label: string; left?: boolean; title?: string }[] = [
   { key: 'item', label: 'Item', left: true },
   { key: 'cost', label: 'Cost to craft' },
   { key: 'revenue', label: 'Sells for' },
   { key: 'profit', label: 'Profit' },
   { key: 'margin', label: 'Margin' },
-  { key: 'instasellProfit', label: 'Instasell' },
+  { key: 'instasellProfit', label: 'Instasell', title: "what the server's /sell pays for it" },
+  {
+    key: 'orderProfit',
+    label: 'Order',
+    title: 'a recorded player buy order — someone paying this price right now',
+  },
   { key: 'confidence', label: 'Conf.' },
   { key: null, label: 'Listed now' },
   { key: null, label: 'Age' },
@@ -42,7 +49,7 @@ export default function Ledger({
                 type="button"
                 className={sort === col.key ? 'on' : ''}
                 onClick={() => onSort(col.key as SortKey)}
-                title={`sort by ${col.label.toLowerCase()}`}
+                title={col.title ?? `sort by ${col.label.toLowerCase()}`}
               >
                 {col.label}
                 {sort === col.key ? ' ↓' : ''}

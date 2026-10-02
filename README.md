@@ -138,7 +138,58 @@ whatever the sell side says, so it is capped at 60% and can never read *high*. T
 breakdown rides in the tooltip of the `conf` column and comes back as
 `confidenceFactors`, so a score can be argued with rather than just believed.
 
-### Recipe data
+### The order book (easy money)
+
+A player buy order is someone offering to pay a price for a quantity of an item
+right now — `/orders` in game — and `/sell` routes to one when it beats the
+server's own base price. So a recorded order is the best exit a craft can have: a
+named buyer at a known price, with no listing to wait on and no buyer to find.
+
+```
+order profit       = order price × output count − cost − fee
+order fillable     = floor(order quantity ÷ output count)
+easy money         = order profit > 0
+                     AND every material has a live listing
+                     AND the order was seen inside the TTL
+```
+
+**No public feed carries order prices, and that is not for want of looking.** All
+four were checked against the live services:
+
+| Source | Result |
+| --- | --- |
+| `api.donut.auction/v2/orders/search/` | answers and validates its arguments, but returns an **empty book for every query** — including single letters, which would surface anything at all. The site's own `/orders` page and API documentation both say the data was retired. |
+| `api.donutsmp.net` (official) | **19 documented endpoints** across `/v1` and `/v2`, and none of them is an order endpoint. Its only auction schema is an ask-side listing: a body of `{search, sort}` over `lowest_price`, `highest_price`, `recently_listed`, `last_listed`. |
+| DonutStats | reads the same four official endpoints (player stats, lookup, leaderboards, auction listings) and nothing else. |
+| community | orders are in-game only; reading them takes a client mod, which is bannable. |
+
+So the book is one you own, filled from what `/orders` shows in game — the same
+two-file pattern as the `/sell` table:
+
+```
+data/orders.json          # shipped in the image, empty
+$DATA_DIR/orders.json     # where /api/orders writes, merged over the seed per item
+```
+
+Record one from the **Orders** page in the UI, or:
+
+```bash
+curl -X POST localhost:8789/api/orders \
+  -H 'content-type: application/json' \
+  -d '{"item":"iron_door","price":5000,"quantity":9,"buyer":"someone"}'
+```
+
+`price` is what the buyer pays **per item**; send `totalPrice` instead and it is
+divided by the quantity. Both files are reloaded when they change, so an order
+lands in the ledger immediately — no rebuild, no restart.
+
+Orders expire after `ORDERS_TTL_HOURS` (24 by default). A buyer can fill or
+withdraw an offer at any moment, so an order nobody has re-checked is shown with
+its age, flagged stale, and **never counted as easy money**. The ledger's
+**easy money** filter and the Orders page both key off this flag, and the summary
+block counts the total worth filling.
+
+
 
 `tools/build_recipes.py` generates `data/recipes.json` from
 [InventivetalentDev/minecraft-assets](https://github.com/InventivetalentDev/minecraft-assets)
@@ -173,17 +224,32 @@ table, the dump until the sales index has looked it up. Every row also carries
 
 | endpoint | gives |
 | --- | --- |
-| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `minConfidence` (0–100), `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`\|`instasellProfit`\|`dumpProfit`\|`confidence`), `limit`, `profitableOnly` |
-| `GET /api/crafts/{item}` | one flip: recipe grid, per-ingredient breakdown, recent sales, and the item's fixed `/sell` price |
+| `GET /api/crafts` | ranked table. `q`, `minProfit`, `minMargin`, `minConfidence` (0–100), `sort` (`profit`\|`margin`\|`cost`\|`revenue`\|`item`\|`profitPerUnit`\|`instasellProfit`\|`dumpProfit`\|`orderProfit`\|`orderTotalProfit`\|`confidence`), `limit`, `profitableOnly`, `ordersOnly`, `easyMoneyOnly` |
+| `GET /api/crafts/{item}` | one flip: recipe grid, per-ingredient breakdown, recent sales, the item's fixed `/sell` price, its recorded player order, and `bestExit` (what `/sell` actually pays once order routing is taken into account) |
 | `GET /api/crafts/{item}/history` | profit and margin over time (`days`) |
+| `GET /api/orders` | the recorded order book, each order costed against its recipe: materials cost, profit per craft, how many crafts it absorbs, what filling it pays, and the `easyMoney` flag |
+| `POST /api/orders` | record (or replace) the best known order for one item: `{item, price\|totalPrice, quantity?, buyer?, note?, seenAt?}` |
+| `DELETE /api/orders/{item}` | forget an order — for when the buyer has taken it down |
 | `GET /api/items/search` | live passthrough to donut.auction search, ranked |
 | `GET /api/market/{item}` | the raw index entry for one item |
-| `GET /api/status` | index size, age, request count, upstream health, sales-index fill, `/sell` price table |
+| `GET /api/status` | index size, age, request count, upstream health, sales-index fill, `/sell` price table, order book |
 | `GET /health` | liveness |
 | `GET /docs` | interactive OpenAPI docs |
 
 `netherite_ingot`, `Netherite Ingot` and `minecraft:netherite_ingot` all resolve to
 the same item.
+
+### The Orders page
+
+The UI has two views. **Ledger** is the ranked table; **Orders** is the order book,
+with a form to record what `/orders` shows in game and the same economics per order
+— materials cost, profit per craft, how many crafts it absorbs, what filling it
+pays — sorted by what filling it pays. An order that beats its materials cost is
+tagged `easy` in both views, and the ledger's **easy money** filter narrows to just
+those.
+
+Recording an order does not rebuild anything: it is written to the volume, and both
+the book and the flip table pick it up on the next request.
 
 ---
 
@@ -239,6 +305,9 @@ python tools/verify_craftflip.py http://192.168.50.60:8789
 | `SELL_PRICES_PATH` | `$DATA_DIR/sell_prices.json` | the `/sell` table you edit; reloaded on change |
 | `SELL_PRICES_SEED_PATH` | `<repo>/data/sell_prices.json` | the shipped table it merges over |
 | `SELL_MULTIPLIER` | `1.0` | your `/sellmulti` level, unless an entry overrides it |
+| `ORDERS_PATH` | `$DATA_DIR/orders.json` | the order book; `/api/orders` writes here, reloaded on change |
+| `ORDERS_SEED_PATH` | `<repo>/data/orders.json` | the shipped order book it merges over |
+| `ORDERS_TTL_HOURS` | `24` | how long a recorded order counts as live |
 | `DATA_DIR` | `<repo>/data` | flip history log |
 | `HISTORY_TOP_N` | `200` | flips recorded per refresh |
 | `HISTORY_RETENTION_DAYS` | `14` | history kept |

@@ -16,6 +16,12 @@ services:
       SALES_TTL_SECONDS: "3600"
       SALES_SPACING_SECONDS: "1.0"
       SALES_MAX_PER_CYCLE: "600"
+      # player buy orders, recorded through /api/orders. There is no public feed for
+      # them, so this is a table you fill from what /orders shows in game. It is
+      # written to the volume below, so it survives a redeploy of the image, and
+      # orders older than the TTL are shown but never counted as easy money.
+      ORDERS_TTL_HOURS: "24"
+      ORDERS_PATH: /data/orders.json
     volumes:
       # flip history lives here; the recipe dataset is baked into the image
       - craftflip-data:/data

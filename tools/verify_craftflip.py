@@ -43,6 +43,46 @@ def call(base: str, path: str, want: int = 200, accept: str = "application/json"
     return body
 
 
+def body_call(base: str, path: str, method: str, payload=None, want: int = 200):
+    """One request with a JSON body. Used for the order book's write endpoints."""
+    url = base.rstrip("/") + path
+    data = None if payload is None else json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={**UA, "Content-Type": "application/json"},
+    )
+    try:
+        r = urllib.request.urlopen(req, timeout=60)
+        raw, status = r.read(), r.status
+    except urllib.error.HTTPError as e:
+        raw, status = e.read(), e.code
+    except Exception as exc:  # noqa: BLE001
+        print(f"ERR {method} {path:<46} {type(exc).__name__}: {exc}")
+        FAILED.append(f"{method} {path}")
+        return None
+    ok = status == want
+    if not ok:
+        FAILED.append(f"{method} {path} -> {status}, wanted {want}")
+    print(f"{'OK ' if ok else 'BAD'} {status} (want {want}) {method} {path}")
+    if not ok:
+        # a status we did not want is a failure to report, not a body to hand back
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError:
+        return None
+
+
+def post(base: str, path: str, payload, want: int = 200):
+    return body_call(base, path, "POST", payload, want)
+
+
+def delete(base: str, path: str, want: int = 200):
+    return body_call(base, path, "DELETE", None, want)
+
+
 def main() -> int:
     base = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8789"
     print(f"verifying {base}\n")
@@ -174,6 +214,68 @@ def main() -> int:
         print(f"       confidence {f.get('confidence')}% ({f.get('confidenceLabel')})")
     else:
         print("     netherite_ingot: not costable in this run")
+
+    # the order book: the instasell side /sell routes into. There is no public feed
+    # for it, so these endpoints are the only way in and out.
+    orders = call(base, "/api/orders?limit=20")
+    if orders:
+        meta = orders.get("meta", {})
+        book = meta.get("book", {})
+        print(f"     order book: {book.get('orders')} recorded "
+              f"({book.get('fresh')} fresh, {book.get('stale')} stale, ttl {book.get('ttlHours')}h) "
+              f"writable={book.get('writable')} easyMoney={meta.get('easyMoney')}")
+        if book.get("errors"):
+            print(f"     order book errors={book['errors']}")
+            FAILED.append(f"order book reported errors: {book['errors']}")
+        if not book.get("writable"):
+            FAILED.append("the order book has no writable path, so orders cannot be recorded")
+        for entry in orders.get("orders", [])[:5]:
+            print(f"       {entry['item']:<28} order={entry['unitPrice']:>12,.0f} "
+                  f"x{entry['quantity']:<5} cost={entry.get('cost')} "
+                  f"profit={entry.get('orderProfit')} "
+                  f"total={entry.get('orderTotalProfit')} "
+                  f"easy={entry.get('easyMoney')}")
+        # a recorded order must reach the flip table, or the two views disagree
+        if orders.get("orders"):
+            first = orders["orders"][0]
+            if first.get("craftable") and "orderProfit" not in first:
+                FAILED.append("a craftable order has no economics attached")
+
+    call(base, "/api/orders?easyMoneyOnly=true")
+    call(base, "/api/orders/zzz_not_a_real_item", want=404)
+    call(base, "/api/crafts?ordersOnly=true&limit=5")
+    call(base, "/api/crafts?easyMoneyOnly=true&limit=5")
+    call(base, "/api/crafts?sort=orderProfit&limit=3")
+    call(base, "/api/crafts?sort=orderTotalProfit&limit=3")
+    call(base, "/api/crafts?sort=not_a_sort_key&limit=3", want=422)  # the sort set is closed
+
+    # write round-trip on a deliberately synthetic item, so a real order can never be
+    # overwritten by a smoke test, and remove it again
+    probe = "zz_craftflip_selfcheck"
+    posted = post(base, "/api/orders", {"item": probe, "price": 12345, "quantity": 7})
+    if posted:
+        got = posted.get("order") or {}
+        if got.get("unitPrice") != 12345 or got.get("quantity") != 7:
+            FAILED.append(f"the write round-trip did not come back as sent: {got}")
+        else:
+            print(f"     write round-trip ok: {got.get('item')} "
+                  f"{got.get('unitPrice')} x{got.get('quantity')}")
+        # and it must be readable back through the book
+        reread = call(base, f"/api/orders/{probe}")
+        if reread and (reread.get("order") or {}).get("quantity") != 7:
+            FAILED.append("a recorded order did not read back with its quantity")
+        call(base, f"/api/orders/{probe}", want=200)
+        removed = delete(base, f"/api/orders/{probe}")
+        if not removed or not removed.get("removed"):
+            FAILED.append("the recorded order could not be removed again")
+        call(base, f"/api/orders/{probe}", want=404)  # and it is really gone
+        # a bad price must be refused rather than stored: the 422 is asserted by the
+        # wanted status, and the real test is that nothing landed on the book
+        post(base, "/api/orders", {"item": probe, "price": 0, "quantity": 1}, want=422)
+        post(base, "/api/orders", {"item": probe, "quantity": 1}, want=422)  # no price at all
+        post(base, "/api/orders", {"item": probe, "price": -5, "quantity": 1}, want=422)
+        post(base, "/api/orders", {"item": probe, "price": 10, "quantity": 0}, want=422)
+        call(base, f"/api/orders/{probe}", want=404)  # none of them created an order
 
     # the SPA
     html = call(base, "/", accept="text/html")

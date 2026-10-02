@@ -1,0 +1,1467 @@
+{
+ "schemes": [],
+ "swagger": "2.0",
+ "info": {
+  "description": "Official Public API for DonutSMP\nFor authentication, create an API key in game using /api. Then copy this key and set the Authorization header as follows:\nAuthorization: Bearer {YOUR_API_KEY}\nThere is currently a limit of 250/reqs per minute per API key.",
+  "title": "DonutSMP Public API",
+  "contact": {},
+  "version": "1.0"
+ },
+ "host": "api.donutsmp.net",
+ "basePath": "/",
+ "paths": {
+  "/v1/auction/list/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Process an auction request and return the result.",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Auction"
+    ],
+    "summary": "Sends all current Auction House entries",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     },
+     {
+      "description": "Optional search and sort information",
+      "name": "auction",
+      "in": "body",
+      "schema": {
+       "$ref": "#/definitions/ah.RequestBody"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Auction data",
+      "schema": {
+       "$ref": "#/definitions/api.AhResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/auction/transactions/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Process an auction transaction request and return the result.",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Auction"
+    ],
+    "summary": "Sends all current Auction House transaction data",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page (Max 10, Min 1, 100 items per page, order of date sold)",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Auction transaction data",
+      "schema": {
+       "$ref": "#/definitions/api.TransactionHistoryResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/brokenblocks/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the leaderboard for the amount of blocks broken",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the leaderboard for the amount of blocks broken",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/deaths/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the deaths leaderboard",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the deaths leaderboard",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/kills/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the kills leaderboard",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the kills leaderboard",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/mobskilled/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the mobs killed leaderboard",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the mobs killed leaderboard",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/money/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the money leaderboard",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the money leaderboard",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/placedblocks/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the leaderboard for amount of placed blocks",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the leaderboard for amount of placed blocks",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/playtime/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the shards playtime",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the shards playtime",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/sell/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the leaderboard for amount made on /sell",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the leaderboard for amount made on /sell",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/shards/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the shards leaderboard",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the shards leaderboard",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/leaderboards/shop/{page}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the leaderboard for amount spent on /shop",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Leaderboards"
+    ],
+    "summary": "Sends a copy of the leaderboard for amount spent on /shop",
+    "parameters": [
+     {
+      "type": "integer",
+      "description": "Page",
+      "name": "page",
+      "in": "path"
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Leaderboard response",
+      "schema": {
+       "$ref": "#/definitions/api.LeaderboardResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/lookup/{user}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the player information as you would see with /findplayer",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Lookup"
+    ],
+    "summary": "Sends a copy of the player information as you would see with /findplayer",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Player Username",
+      "name": "user",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Lookup data",
+      "schema": {
+       "$ref": "#/definitions/api.LookupResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/shield/bedrock/config/{service}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of service metrics for shield",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Sends the configuration file for Shield to be inspected/updated.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.BedrockShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   },
+   "put": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Updates the server backends for the Shield service",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Updates the configuration file for Shield.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     },
+     {
+      "description": "Backend List",
+      "name": "data",
+      "in": "body",
+      "required": true,
+      "schema": {
+       "$ref": "#/definitions/api.BedrockShieldConfig"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/shield/java/config/{service}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of service metrics for shield",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Sends the configuration file for Shield to be inspected/updated.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   },
+   "put": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Updates the server backends for the Shield service",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Updates the configuration file for Shield.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     },
+     {
+      "description": "Domains List",
+      "name": "data",
+      "in": "body",
+      "required": true,
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/shield/metrics/{service}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of service metrics for shield",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Sends a copy of service metrics for shield",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.MetricsResult"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/shield/stats/{service}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of service stats for shield",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Sends a copy of service stats for shield",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.OriginStats"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v1/stats/{user}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of the player profile as you would see with /stats",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Statistics"
+    ],
+    "summary": "Sends a copy of the player profile as you would see with /stats",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Player Username",
+      "name": "user",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Profile data",
+      "schema": {
+       "$ref": "#/definitions/api.StatsResponse"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  },
+  "/v2/shield/bedrock/config/{service}": {
+   "get": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Sends a copy of service metrics for shield",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Sends the configuration file for Shield to be inspected/updated.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   },
+   "put": {
+    "security": [
+     {
+      "BearerAuth": []
+     }
+    ],
+    "description": "Updates the server backends for the Shield service",
+    "consumes": [
+     "application/json"
+    ],
+    "produces": [
+     "application/json"
+    ],
+    "tags": [
+     "Shield"
+    ],
+    "summary": "Updates the configuration file for Shield.",
+    "parameters": [
+     {
+      "type": "string",
+      "description": "Service ID",
+      "name": "service",
+      "in": "path",
+      "required": true
+     },
+     {
+      "description": "Domains List",
+      "name": "data",
+      "in": "body",
+      "required": true,
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Response",
+      "schema": {
+       "$ref": "#/definitions/api.ShieldConfig"
+      }
+     },
+     "401": {
+      "description": "Unauthorized request",
+      "schema": {
+       "$ref": "#/definitions/main.NoAuth"
+      }
+     },
+     "500": {
+      "description": "Could not handle query",
+      "schema": {
+       "$ref": "#/definitions/api.InvalidResponse"
+      }
+     }
+    }
+   }
+  }
+ },
+ "definitions": {
+  "ah.RequestBody": {
+   "type": "object",
+   "properties": {
+    "search": {
+     "type": "string",
+     "example": "diamond"
+    },
+    "sort": {
+     "type": "string",
+     "example": "lowest_price, highest_price, recently_listed, last_listed"
+    }
+   }
+  },
+  "api.Ah": {
+   "type": "object",
+   "properties": {
+    "item": {
+     "$ref": "#/definitions/api.Item"
+    },
+    "price": {
+     "type": "number"
+    },
+    "seller": {
+     "$ref": "#/definitions/api.Seller"
+    },
+    "time_left": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.AhResponse": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "type": "array",
+     "items": {
+      "$ref": "#/definitions/api.Ah"
+     }
+    },
+    "status": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.BedrockShieldConfig": {
+   "type": "object",
+   "properties": {
+    "backends": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "api.ContainerItem": {
+   "type": "object",
+   "properties": {
+    "count": {
+     "type": "integer"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "enchants": {
+     "$ref": "#/definitions/api.ItemData"
+    },
+    "id": {
+     "type": "string"
+    }
+   }
+  },
+  "api.Enchantments": {
+   "type": "object",
+   "properties": {
+    "levels": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer"
+     }
+    }
+   }
+  },
+  "api.InvalidResponse": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string",
+     "example": "Could not handle your request. This may be because the specified user/page/item does not exist."
+    },
+    "reason": {
+     "type": "string",
+     "example": "Error handling request"
+    },
+    "status": {
+     "type": "integer",
+     "example": 500
+    }
+   }
+  },
+  "api.Item": {
+   "type": "object",
+   "properties": {
+    "contents": {
+     "type": "array",
+     "items": {
+      "$ref": "#/definitions/api.ContainerItem"
+     }
+    },
+    "count": {
+     "type": "integer"
+    },
+    "display_name": {
+     "type": "string"
+    },
+    "enchants": {
+     "$ref": "#/definitions/api.ItemData"
+    },
+    "id": {
+     "type": "string"
+    },
+    "lore": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "api.ItemData": {
+   "type": "object",
+   "properties": {
+    "enchantments": {
+     "$ref": "#/definitions/api.Enchantments"
+    },
+    "trim": {
+     "$ref": "#/definitions/api.Trim"
+    }
+   }
+  },
+  "api.Leaderboard": {
+   "type": "object",
+   "properties": {
+    "username": {
+     "type": "string"
+    },
+    "uuid": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   }
+  },
+  "api.LeaderboardResponse": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "type": "array",
+     "items": {
+      "$ref": "#/definitions/api.Leaderboard"
+     }
+    },
+    "status": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.Lookup": {
+   "type": "object",
+   "properties": {
+    "location": {
+     "type": "string"
+    },
+    "rank": {
+     "type": "string"
+    },
+    "username": {
+     "type": "string"
+    }
+   }
+  },
+  "api.LookupResponse": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "$ref": "#/definitions/api.Lookup"
+    },
+    "status": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.MetricsResult": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "api.OriginStats": {
+   "type": "object",
+   "properties": {
+    "stats": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "number",
+      "format": "float64"
+     }
+    }
+   }
+  },
+  "api.PurchaseItem": {
+   "type": "object",
+   "properties": {
+    "item": {
+     "$ref": "#/definitions/api.Item"
+    },
+    "price": {
+     "type": "number"
+    },
+    "seller": {
+     "$ref": "#/definitions/api.Seller"
+    },
+    "unixMillisDateSold": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.Seller": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "uuid": {
+     "type": "string"
+    }
+   }
+  },
+  "api.ShieldConfig": {
+   "type": "object",
+   "properties": {
+    "regionalizedBackends": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  "api.Stats": {
+   "type": "object",
+   "properties": {
+    "broken_blocks": {
+     "type": "string"
+    },
+    "deaths": {
+     "type": "string"
+    },
+    "kills": {
+     "type": "string"
+    },
+    "mobs_killed": {
+     "type": "string"
+    },
+    "money": {
+     "type": "string"
+    },
+    "money_made_from_sell": {
+     "type": "string"
+    },
+    "money_spent_on_shop": {
+     "type": "string"
+    },
+    "placed_blocks": {
+     "type": "string"
+    },
+    "playtime": {
+     "type": "string"
+    },
+    "shards": {
+     "type": "string"
+    }
+   }
+  },
+  "api.StatsResponse": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "$ref": "#/definitions/api.Stats"
+    },
+    "status": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.TransactionHistoryResponse": {
+   "type": "object",
+   "properties": {
+    "result": {
+     "type": "array",
+     "items": {
+      "$ref": "#/definitions/api.PurchaseItem"
+     }
+    },
+    "status": {
+     "type": "integer"
+    }
+   }
+  },
+  "api.Trim": {
+   "type": "object",
+   "properties": {
+    "material": {
+     "type": "string"
+    },
+    "pattern": {
+     "type": "string"
+    }
+   }
+  },
+  "main.NoAuth": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string",
+     "example": "Please generate an API Key in game with /api"
+    },
+    "reason": {
+     "type": "string",
+     "example": "Unauthorized"
+    },
+    "status": {
+     "type": "integer",
+     "example": 401
+    }
+   }
+  }
+ },
+ "securityDefinitions": {
+  "BearerAuth": {
+   "type": "apiKey",
+   "name": "Authorization",
+   "in": "header"
+  }
+ }
+}

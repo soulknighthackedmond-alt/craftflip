@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { api } from './api'
 import { ageSeconds, count } from './format'
 import { usePoll, useTicker } from './hooks'
@@ -21,6 +21,12 @@ export default function Layout() {
         <p className="tagline">
           Every vanilla crafting recipe, costed against live donut.auction prices.
         </p>
+        <nav className="nav">
+          <NavLink to="/" end>
+            Ledger
+          </NavLink>
+          <NavLink to="/orders">Orders</NavLink>
+        </nav>
         <div className="livestrip">
           <span className="pip">
             index <span className="v">{count(market?.indexSize ?? 0)}</span>

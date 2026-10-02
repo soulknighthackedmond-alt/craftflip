@@ -57,7 +57,21 @@ def _closeness(a: float | None, b: float | None) -> float | None:
 
 
 def _sell_basis(flip: dict[str, Any], sell: dict[str, Any] | None) -> tuple[float, str]:
-    """Score the sell side, and say which side it came from."""
+    """Score the sell side, and say which side it came from.
+
+    A recorded player order outranks everything else here: it is a named buyer at
+    a known price, which is a better exit than a server base price (capped by your
+    own multiplier) and far better than the middle of a handful of old sales. It
+    is docked, but not to nothing, when it has gone stale -- a buyer's offer can be
+    filled or withdrawn at any moment, and the row shows how old it is.
+    """
+    order = flip.get("orderUnitPrice")
+    if order:
+        age_h = (flip.get("orderAgeSeconds") or 0) / 3600.0
+        if flip.get("orderStale"):
+            return 0.35, f"order at {order:,.0f} has gone stale ({age_h:.0f}h old)"
+        return 0.85, f"live order at {order:,.0f} ({age_h:.0f}h old)"
+
     if sell and sell.get("base"):
         score = SELL_SOURCE_SCORE.get(str(sell.get("source") or ""), 0.6)
         return score, f"fixed /sell base {sell['base']:,.0f} ({sell.get('source') or 'unattributed'})"
@@ -77,6 +91,9 @@ def _agreement(flip: dict[str, Any], sell: dict[str, Any] | None) -> tuple[float
     pairs = [
         ("index vs sales", flip.get("output", {}).get("unitPrice"), flip.get("dumpUnitPrice")),
     ]
+    if flip.get("orderUnitPrice"):
+        pairs.append(("index vs order", flip.get("output", {}).get("unitPrice"), flip.get("orderUnitPrice")))
+        pairs.append(("sales vs order", flip.get("dumpUnitPrice"), flip.get("orderUnitPrice")))
     if sell and sell.get("base"):
         pairs.append(("index vs /sell", flip.get("output", {}).get("unitPrice"), sell.get("base")))
         pairs.append(("sales vs /sell", flip.get("dumpUnitPrice"), sell.get("base")))

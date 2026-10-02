@@ -14,12 +14,14 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
 from . import __version__, config
 from .donut import DonutClient, UpstreamError, normalize_query, prettify, sale_row, summarise_sales
 from .flips import FlipTable, RecipeDataError, load_recipes, recipe_grid
 from .history import FlipHistory
 from .market import Market
+from .orders import OrderBook
 from .sales import SalesIndex
 from .sellprices import SellPrices
 
@@ -90,6 +92,11 @@ async def lifespan(app: FastAPI):
         seed_path=config.SELL_PRICES_SEED_PATH,
         multiplier=config.SELL_MULTIPLIER,
     )
+    orders = OrderBook(
+        path=config.ORDERS_PATH,
+        seed_path=config.ORDERS_SEED_PATH,
+        ttl_hours=config.ORDERS_TTL_HOURS,
+    )
     table = FlipTable(
         market,
         doc["recipes"],
@@ -97,6 +104,7 @@ async def lifespan(app: FastAPI):
         config.FLIPS_TTL_SECONDS,
         sales,
         sell_prices,
+        orders,
     )
     history = FlipHistory(config.DATA_DIR, config.HISTORY_TOP_N, config.HISTORY_RETENTION_DAYS)
 
@@ -108,6 +116,7 @@ async def lifespan(app: FastAPI):
             "sales": sales,
             "history": history,
             "sell_prices": sell_prices,
+            "orders": orders,
         }
     )
     await market.start()
@@ -145,6 +154,7 @@ async def health() -> dict[str, Any]:
     market: Market | None = state.get("market")
     sales: SalesIndex | None = state.get("sales")
     sell_prices: SellPrices | None = state.get("sell_prices")
+    orders: OrderBook | None = state.get("orders")
     ok = bool(market and market.index)
     return {
         "status": "ok" if ok and not state.get("recipes_error") else "degraded",
@@ -154,6 +164,7 @@ async def health() -> dict[str, Any]:
         "indexSize": len(market.index) if market else 0,
         "salesIndexSize": sales.size() if sales else 0,
         "sellPricesLoaded": sell_prices.size() if sell_prices else 0,
+        "ordersLoaded": orders.size() if orders else 0,
     }
 
 
@@ -165,6 +176,7 @@ async def status() -> dict[str, Any]:
     history: FlipHistory = state["history"]
     sales: SalesIndex = state["sales"]
     sell_prices: SellPrices = state["sell_prices"]
+    orders: OrderBook = state["orders"]
     return {
         "service": "craftflip",
         "version": __version__,
@@ -173,6 +185,7 @@ async def status() -> dict[str, Any]:
         "market": market.snapshot(),
         "sales": sales.snapshot(),
         "sellPrices": sell_prices.snapshot(),
+        "orders": orders.snapshot(),
         "table": table.stats(),
         "history": history.status(),
         "recipes": state.get("recipes_meta"),
@@ -182,6 +195,7 @@ async def status() -> dict[str, Any]:
             "flipsTtlSeconds": config.FLIPS_TTL_SECONDS,
             "feePercent": config.DONUT_FEE_PERCENT,
             "sellMultiplier": config.SELL_MULTIPLIER,
+            "ordersTtlHours": config.ORDERS_TTL_HOURS,
             "requestSpacingSeconds": config.REQUEST_SPACING_SECONDS,
             "maxRequestsPerRefresh": config.MAX_REQUESTS_PER_REFRESH,
         },
@@ -199,11 +213,13 @@ async def crafts(
         "profit",
         pattern=(
             "^(profit|margin|cost|revenue|item|profitPerUnit|confidence|"
-            "instasellProfit|dumpProfit)$"
+            "instasellProfit|dumpProfit|orderProfit|orderTotalProfit)$"
         ),
     ),
     limit: int = Query(100, ge=1, le=500),
     profitableOnly: bool = True,
+    ordersOnly: bool = False,
+    easyMoneyOnly: bool = False,
 ) -> dict[str, Any]:
     _require_ready()
     market: Market = state["market"]
@@ -217,17 +233,180 @@ async def crafts(
         sort=sort,
         limit=limit,
         profitable_only=profitableOnly,
+        orders_only=ordersOnly,
+        easy_money_only=easyMoneyOnly,
     )
     return {
         "count": len(rows),
         "items": rows,
         "meta": {
             **table.stats(),
+            "ordersRecorded": state["orders"].size(),
+            "ordersTtlHours": config.ORDERS_TTL_HOURS,
             "indexAgeSeconds": None if market.age is None else round(market.age, 1),
             "upstreamOk": market.upstream_ok,
             "indexSize": len(market.index),
         },
     }
+
+
+# ---------------------------------------------------------------- orders ----
+class OrderIn(BaseModel):
+    """One player buy order, as /orders shows it in game.
+
+    `price` is what the buyer pays per item. Send `totalPrice` instead and it is
+    divided by the quantity. `item` accepts the same loose spellings as every
+    other endpoint: netherite_ingot, Netherite Ingot or minecraft:netherite_ingot.
+    """
+
+    item: str
+    price: float | None = None
+    totalPrice: float | None = None
+    quantity: int = 1
+    buyer: str | None = None
+    note: str | None = None
+    seenAt: str | None = None
+
+
+@app.get("/api/orders")
+async def list_orders(
+    q: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    easyMoneyOnly: bool = False,
+) -> dict[str, Any]:
+    """The recorded order book, each order costed against its recipe.
+
+    This is the answer to "which orders are easy money": for every order on the
+    book, what the materials cost, what filling it pays, and how many crafts it
+    absorbs. An order for an item with no vanilla recipe stays on the book but has
+    no economics attached, rather than being hidden.
+    """
+    _require_ready()
+    orders: OrderBook = state["orders"]
+    table: FlipTable = state["table"]
+    market: Market = state["market"]
+    await market.ensure_fresh()
+    rows = await table.rows()
+    by_item = {r["item"]: r for r in rows}
+
+    out: list[dict[str, Any]] = []
+    for order in orders.all():
+        flip = by_item.get(order["item"])
+        entry: dict[str, Any] = {
+            **order,
+            "displayName": prettify(order["item"]),
+            "craftable": flip is not None,
+        }
+        if flip is not None:
+            entry.update(
+                {
+                    "cost": flip["cost"],
+                    "craftablePerCraft": flip["output"]["count"],
+                    "orderProfit": flip["orderProfit"],
+                    "orderMargin": flip["orderMargin"],
+                    "orderRevenue": flip["orderRevenue"],
+                    "orderFillable": flip["orderFillable"],
+                    "orderTotalProfit": flip["orderTotalProfit"],
+                    "actionable": flip["actionable"],
+                    "estimated": flip["estimated"],
+                    "materialsListed": flip["materialsListed"],
+                    "materialsTotal": flip["materialsTotal"],
+                    "easyMoney": flip["easyMoney"],
+                    "confidence": flip["confidence"],
+                    "confidenceLabel": flip["confidenceLabel"],
+                    "marketValue": flip["output"]["unitPrice"],
+                    "dumpUnitPrice": flip["dumpUnitPrice"],
+                    "instasellUnitPrice": flip["instasellUnitPrice"],
+                    "profit": flip["profit"],
+                    "margin": flip["margin"],
+                }
+            )
+        out.append(entry)
+
+    if q:
+        needle = q.strip().lower().replace(" ", "_")
+        out = [o for o in out if needle in o["item"]]
+    if easyMoneyOnly:
+        out = [o for o in out if o.get("easyMoney")]
+
+    out.sort(
+        key=lambda o: (
+            o.get("orderTotalProfit") if o.get("orderTotalProfit") is not None else float("-inf")
+        ),
+        reverse=True,
+    )
+    return {
+        "count": len(out),
+        "orders": out[:limit],
+        "meta": {
+            "book": orders.snapshot(),
+            "easyMoney": sum(1 for o in out if o.get("easyMoney")),
+            "withEconomics": sum(1 for o in out if o["craftable"]),
+            "indexAgeSeconds": None if market.age is None else round(market.age, 1),
+            "feePercent": config.DONUT_FEE_PERCENT,
+        },
+    }
+
+
+@app.post("/api/orders")
+async def record_order(order: OrderIn) -> dict[str, Any]:
+    """Record (or replace) the best known order for one item.
+
+    Written to the mounted volume, so it survives a redeploy, and picked up by the
+    flip table immediately -- no rebuild, no restart.
+    """
+    orders: OrderBook = state["orders"]
+    price = order.price
+    if price is None and order.totalPrice is not None:
+        if order.quantity < 1:
+            raise HTTPException(status_code=422, detail="quantity must be at least 1")
+        price = order.totalPrice / order.quantity
+    if price is None:
+        raise HTTPException(status_code=422, detail="send price (per item) or totalPrice")
+    try:
+        saved = orders.put(
+            order.item,
+            price,
+            quantity=order.quantity,
+            buyer=order.buyer,
+            note=order.note,
+            seen_at=order.seenAt,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    state["table"]._rows = None  # recompute so the new order shows up at once
+    flip = await state["table"].find(saved["item"])
+    return {
+        "order": saved,
+        "flip": flip,
+        "meta": {"book": orders.snapshot(), "table": state["table"].stats()},
+    }
+
+
+@app.delete("/api/orders/{item_name}")
+async def delete_order(item_name: str) -> dict[str, Any]:
+    """Forget one item's order -- for when the buyer has taken it down."""
+    orders: OrderBook = state["orders"]
+    removed = orders.drop(normalize_query(item_name))
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"no recorded order for {item_name!r}")
+    state["table"]._rows = None
+    return {"removed": True, "item": normalize_query(item_name), "meta": {"book": orders.snapshot()}}
+
+
+@app.get("/api/orders/{item_name}")
+async def order_detail(item_name: str) -> dict[str, Any]:
+    """One recorded order with its full craft economics."""
+    orders: OrderBook = state["orders"]
+    name = normalize_query(item_name)
+    order = orders.lookup(name)
+    if order is None:
+        raise HTTPException(status_code=404, detail=f"no recorded order for {name!r}")
+    flip = await state["table"].find(name)
+    return {"order": order, "flip": flip, "displayName": prettify(name)}
 
 
 @app.get("/api/crafts/{item_name}/history")
@@ -272,6 +451,21 @@ async def craft_detail(item_name: str) -> dict[str, Any]:
         # the fixed /sell price for this item, if one is in the table. Shown even for
         # items with no craftable recipe, since it stands on its own.
         "sellPrice": state["sell_prices"].lookup(name),
+        # a recorded player buy order for this item, if any. /sell fills one when it
+        # pays more than the base price, so this is the best exit when it exists.
+        "order": state["orders"].lookup(name),
+    }
+    sell = out["sellPrice"]
+    order = out["order"]
+    out["bestExit"] = {
+        "order": (order or {}).get("unitPrice"),
+        "serverSell": (sell or {}).get("payout"),
+        # what /sell actually pays: the higher of the two, since it routes to the
+        # order when the order beats the server's own base price
+        "effective": max(
+            [v for v in [(order or {}).get("unitPrice"), (sell or {}).get("payout")] if v],
+            default=None,
+        ),
     }
     if recipe is not None:
         out["grid"] = recipe_grid(recipe, market)

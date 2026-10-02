@@ -56,6 +56,18 @@ SELL_PRICES_PATH = os.getenv("SELL_PRICES_PATH", str(Path(DATA_DIR) / "sell_pric
 # Your own /sellmulti level, 1.0x by default. The table can override it per item.
 SELL_MULTIPLIER = float(os.getenv("SELL_MULTIPLIER", "1.0"))
 
+# Player buy orders -- the instasell side that /sell routes into. No public feed
+# exists for them (see app/orders.py), so this is a table the operator fills from
+# what /orders shows in game. Two files are merged: a seed in the image, and an
+# optional copy in DATA_DIR whose entries win, so orders survive a redeploy. The
+# volume copy is also where the write API records new orders.
+ORDERS_SEED_PATH = os.getenv("ORDERS_SEED_PATH", str(ROOT_DIR / "data" / "orders.json"))
+ORDERS_PATH = os.getenv("ORDERS_PATH", str(Path(DATA_DIR) / "orders.json"))
+# How long a recorded order is treated as live. A buyer's offer can be filled or
+# withdrawn at any moment, so an order nobody has re-checked for a day is not
+# evidence of a buyer -- it still shows, flagged, but it is not easy money.
+ORDERS_TTL_HOURS = float(os.getenv("ORDERS_TTL_HOURS", "24"))
+
 # Flip history
 HISTORY_TOP_N = int(os.getenv("HISTORY_TOP_N", "200"))
 HISTORY_RETENTION_DAYS = int(os.getenv("HISTORY_RETENTION_DAYS", "14"))

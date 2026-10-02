@@ -72,6 +72,29 @@ export interface Flip {
   dumpBasis: string | null
   dumpSales: number | null
   dumpLastAt: string | null
+  /** a player's buy order for this item, if one has been recorded. /sell fills an
+   *  order when it beats the server's own base price, so this is the best exit a
+   *  craft can have: a named buyer at a known price, with no listing to wait on.
+   *  Null means no order has been recorded -- not that none exists. */
+  orderUnitPrice: number | null
+  orderQuantity: number | null
+  orderBuyer: string | null
+  orderNote: string | null
+  orderSeenAt: string | null
+  orderAgeSeconds: number | null
+  /** an order nobody has re-checked inside the TTL: still shown, not trusted */
+  orderStale: boolean
+  orderRevenue: number | null
+  orderFee: number | null
+  orderProfit: number | null
+  orderMargin: number | null
+  /** how many crafts the order absorbs before it is filled */
+  orderFillable: number | null
+  /** what filling the whole order pays, not just one craft */
+  orderTotalProfit: number | null
+  /** an order that pays more than the materials cost, for an item whose materials
+   *  are all buyable right now. The headline filter. */
+  easyMoney: boolean
   /** 0-100, how much the inputs behind this row can be trusted */
   confidence: number
   confidenceLabel: 'high' | 'medium' | 'low' | 'very low'
@@ -97,12 +120,75 @@ export interface CraftsMeta {
   indexAgeSeconds: number | null
   upstreamOk: boolean
   indexSize: number
+  /** how many rows are orders that pay more than their materials cost */
+  easyMoneyFound: number
+  ordersPriced: number
+  ordersRecorded: number
+  ordersTtlHours: number
 }
 
 export interface CraftsResponse {
   count: number
   items: Flip[]
   meta: CraftsMeta
+}
+
+/** One entry on the recorded order book, costed against its recipe. */
+export interface OrderEntry {
+  item: string
+  displayName: string
+  unitPrice: number
+  quantity: number
+  buyer: string | null
+  note: string | null
+  seenAt: string | null
+  ageSeconds: number | null
+  ttlSeconds: number
+  stale: boolean
+  /** false when no vanilla recipe produces this item, so there is nothing to cost */
+  craftable: boolean
+  cost?: number
+  craftablePerCraft?: number
+  orderProfit?: number | null
+  orderMargin?: number | null
+  orderRevenue?: number | null
+  orderFillable?: number | null
+  orderTotalProfit?: number | null
+  actionable?: boolean
+  estimated?: boolean
+  materialsListed?: number
+  materialsTotal?: number
+  easyMoney?: boolean
+  confidence?: number
+  confidenceLabel?: string
+  marketValue?: number | null
+  dumpUnitPrice?: number | null
+  instasellUnitPrice?: number | null
+  profit?: number
+  margin?: number
+}
+
+export interface OrdersResponse {
+  count: number
+  orders: OrderEntry[]
+  meta: {
+    book: {
+      orders: number
+      fresh: number
+      stale: number
+      ttlHours: number
+      bookPath: string | null
+      bookExists: boolean
+      seedPath: string | null
+      writable: boolean
+      errors: string[]
+      revision: number
+    }
+    easyMoney: number
+    withEconomics: number
+    indexAgeSeconds: number | null
+    feePercent: number
+  }
 }
 
 export interface GridCell {
@@ -155,6 +241,10 @@ export interface Detail {
   craftable: boolean
   /** the fixed /sell price for this item, if the table has one */
   sellPrice?: SellPrice | null
+  /** a recorded player buy order for this item, if any */
+  order?: OrderEntry | null
+  /** what /sell actually pays, once order routing is taken into account */
+  bestExit?: { order: number | null; serverSell: number | null; effective: number | null }
   grid?: Grid
   recipeId?: string
   recipeType?: string
@@ -246,4 +336,41 @@ export const api = {
   history: (item: string, days = 14) =>
     get<HistoryResponse>(`/api/crafts/${encodeURIComponent(item)}/history?days=${days}`),
   status: () => get<StatusResponse>('/api/status'),
+  orders: () => get<OrdersResponse>('/api/orders?limit=500'),
+}
+
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const r = await fetch(path, {
+    method,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!r.ok) {
+    let detail = `${r.status} ${r.statusText}`
+    try {
+      const parsed = await r.json()
+      if (parsed?.detail) {
+        detail = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail)
+      }
+    } catch {
+      /* not JSON; keep the status line */
+    }
+    throw new Error(detail)
+  }
+  return (await r.json()) as T
+}
+
+/** Recording an order is the one write in this app. It lands on the mounted
+ *  volume and is picked up by the table immediately, so no rebuild is needed. */
+export const orderApi = {
+  record: (body: {
+    item: string
+    price?: number
+    totalPrice?: number
+    quantity?: number
+    buyer?: string
+    note?: string
+  }) => send<{ order: OrderEntry; flip: Flip | null }>('/api/orders', 'POST', body),
+  remove: (item: string) =>
+    send<{ removed: boolean }>(`/api/orders/${encodeURIComponent(item)}`, 'DELETE'),
 }

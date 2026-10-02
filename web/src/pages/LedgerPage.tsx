@@ -15,6 +15,8 @@ export default function LedgerPage() {
   const [profitableOnly, setProfitableOnly] = useState(true)
   const [buyableOnly, setBuyableOnly] = useState(false)
   const [instasellOnly, setInstasellOnly] = useState(false)
+  const [easyOnly, setEasyOnly] = useState(false)
+  const [ordersOnly, setOrdersOnly] = useState(false)
   const [sort, setSort] = useState<SortKey>('profit')
 
   const all = data?.items ?? []
@@ -30,22 +32,40 @@ export default function LedgerPage() {
     if (mp !== null && Number.isFinite(mp)) out = out.filter((f) => f.profit >= mp)
     if (mm !== null && Number.isFinite(mm)) out = out.filter((f) => f.margin >= mm)
     if (mc !== null && Number.isFinite(mc)) out = out.filter((f) => f.confidence >= mc)
-    if (profitableOnly && mp === null) out = out.filter((f) => f.profit > 0)
+    // an easy-money row is kept whatever its auction profit says: an order that
+    // beats the materials cost is exactly what you came here to find, and hiding it
+    // behind "profitable only" would be the one row you cannot afford to miss
+    if (profitableOnly && mp === null) out = out.filter((f) => f.profit > 0 || f.easyMoney)
     if (buyableOnly) out = out.filter((f) => f.actionable)
     if (instasellOnly) out = out.filter((f) => (f.instasellProfit ?? 0) > 0)
+    if (ordersOnly) out = out.filter((f) => f.orderUnitPrice !== null)
+    if (easyOnly) out = out.filter((f) => f.easyMoney)
 
-    const key = (f: Flip) =>
-      sort === 'item'
-        ? f.item
-        : sort === 'instasellProfit'
-          ? (f.instasellProfit ?? Number.NEGATIVE_INFINITY)
-          : (f[sort] as number)
+    const key = (f: Flip) => {
+      if (sort === 'item') return f.item
+      if (sort === 'instasellProfit') return f.instasellProfit ?? Number.NEGATIVE_INFINITY
+      if (sort === 'orderProfit') return f.orderProfit ?? Number.NEGATIVE_INFINITY
+      if (sort === 'orderTotalProfit') return f.orderTotalProfit ?? Number.NEGATIVE_INFINITY
+      return f[sort] as number
+    }
     return [...out].sort((a, b) =>
       sort === 'item'
         ? String(key(a)).localeCompare(String(key(b)))
         : (key(b) as number) - (key(a) as number),
     )
-  }, [all, q, minProfit, minMargin, minConf, profitableOnly, buyableOnly, instasellOnly, sort])
+  }, [
+    all,
+    q,
+    minProfit,
+    minMargin,
+    minConf,
+    profitableOnly,
+    buyableOnly,
+    instasellOnly,
+    easyOnly,
+    ordersOnly,
+    sort,
+  ])
 
   // The spread states the whole market, not the filtered view. Margins from
   // estimated costs are excluded when there is anything genuinely buyable, since a
@@ -79,6 +99,18 @@ export default function LedgerPage() {
       profitable.length > 0
         ? profitable.reduce((sum, f) => sum + f.confidence, 0) / profitable.length
         : 0
+    // Orders: a player offering to pay a price for a quantity, recorded by hand
+    // because no public feed carries them. An easy-money row is one where that
+    // offer beats the materials cost and every material is buyable right now --
+    // craft it, fill the order, done. Nothing to wait for and no buyer to find.
+    const withOrder = all.filter((f) => f.orderUnitPrice !== null)
+    const easy = withOrder.filter((f) => f.easyMoney)
+    const easyBest = easy.reduce<Flip | null>(
+      (best, f) =>
+        best === null || (f.orderTotalProfit ?? 0) > (best.orderTotalProfit ?? 0) ? f : best,
+      null,
+    )
+    const easyTotal = easy.reduce((sum, f) => sum + (f.orderTotalProfit ?? 0), 0)
     return {
       buyable: buyable.length,
       estimatedOnly: profitable.length - buyable.length,
@@ -90,6 +122,10 @@ export default function LedgerPage() {
       dumpable: dumpable.length,
       avgConfidence,
       usingEstimated: buyable.length === 0,
+      withOrder: withOrder.length,
+      easy,
+      easyBest,
+      easyTotal,
     }
   }, [all])
 
@@ -98,6 +134,32 @@ export default function LedgerPage() {
   return (
     <>
       <section className="spread" aria-label="market summary">
+        <div className={spread.easy.length > 0 ? 'easy-block' : ''}>
+          <span className="k">Easy money · orders you can fill</span>
+          <span className="v accent">
+            <Num value={spread.easy.length} format={(n) => count(n)} />
+          </span>
+          <div className="sub">
+            {spread.easyBest ? (
+              <>
+                <Link to={`/item/${spread.easyBest.item}`}>
+                  {titleise(spread.easyBest.item)}
+                </Link>{' '}
+                — {coinsExact(spread.easyBest.orderTotalProfit ?? 0)} for{' '}
+                {spread.easyBest.orderFillable} craft
+                {spread.easyBest.orderFillable === 1 ? '' : 's'} · {coinsExact(spread.easyTotal)}{' '}
+                across every order on the book
+              </>
+            ) : (
+              <>
+                {spread.withOrder > 0
+                  ? `${count(spread.withOrder)} order${spread.withOrder === 1 ? '' : 's'} on the book, none paying more than the materials cost`
+                  : 'no orders on the book yet'}{' '}
+                · <Link to="/orders">record one from /orders in game</Link>
+              </>
+            )}
+          </div>
+        </div>
         <div>
           <span className="k">Flips you can do right now</span>
           <span className="v accent">
@@ -247,6 +309,24 @@ export default function LedgerPage() {
             onChange={(e) => setInstasellOnly(e.target.checked)}
           />
           instasell ok
+        </label>
+        <label
+          className="toggle"
+          title="only flips with a recorded player order for the item — a buyer at a known price"
+        >
+          <input
+            type="checkbox"
+            checked={ordersOnly}
+            onChange={(e) => setOrdersOnly(e.target.checked)}
+          />
+          has an order
+        </label>
+        <label
+          className="toggle easy"
+          title="orders that pay more than the materials cost, for an item whose materials are all buyable right now — craft it, fill the order, done"
+        >
+          <input type="checkbox" checked={easyOnly} onChange={(e) => setEasyOnly(e.target.checked)} />
+          easy money
         </label>
         <span className="spacer" />
         <span className="count-line">

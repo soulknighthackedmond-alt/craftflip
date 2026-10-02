@@ -231,6 +231,7 @@ a { color: inherit; text-decoration: none; }
     116px                  /* profit     */
     136px                  /* margin     */
     108px                  /* instasell  */
+    108px                  /* order      */
     78px                   /* confidence */
     104px                  /* listed     */
     62px;                  /* age        */
@@ -321,6 +322,24 @@ a { color: inherit; text-decoration: none; }
 .row .profit.down { color: var(--loss); }
 .row .muted { color: var(--muted); }
 .row .est { color: var(--muted-dim); font-size: 11px; margin-left: 4px; }
+
+/* a recorded order that pays more than the materials cost, for an item whose
+   materials are all buyable right now. The one row treatment in this table that
+   is not about size -- it is about the exit being already there. */
+.flip.easy .row { box-shadow: inset 3px 0 0 var(--profit); }
+.row .easy-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--profit);
+  padding: 2px 5px;
+  margin-left: 6px;
+  flex: none;
+}
+
+.row .order.muted { color: var(--muted-dim); }
 
 /* ---------------------------------------------------------- margin ruler */
 
@@ -658,6 +677,7 @@ a { color: inherit; text-decoration: none; }
     grid-template-areas:
       'item   profit'
       'meta   conf'
+      'sell   order'
       'dump   dump';
     row-gap: 6px;
     align-items: baseline;
@@ -667,7 +687,8 @@ a { color: inherit; text-decoration: none; }
   .row .profit { grid-area: profit; font-size: 15px; }
   .row .cost, .row .revenue, .row .listed, .row .age { display: none; }
   .row .margin { grid-area: meta; justify-content: flex-start; }
-  .row .instasell { grid-area: dump; justify-self: end; font-size: 13px; }
+  .row .instasell { grid-area: sell; justify-self: start; font-size: 13px; }
+  .row .order { grid-area: order; justify-self: end; font-size: 13px; }
   .row .conf { grid-area: conf; justify-self: end; }
 
   .ruler { justify-content: flex-start; }
@@ -715,3 +736,150 @@ a { color: inherit; text-decoration: none; }
 
 .panel-note { font-size: 12.5px; color: var(--muted-dim); line-height: 1.65; margin: 10px 0 0; }
 .panel-note code { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* ------------------------------------------------------------------- orders */
+
+.nav { display: flex; gap: 18px; margin: 14px 0 12px; }
+.nav a {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 3px;
+  border-bottom: 1px solid transparent;
+}
+.nav a:hover { color: var(--text); }
+.nav a.active { color: var(--profit); border-bottom-color: var(--profit); }
+
+/* an easy-money figure is the one thing on the page worth interrupting for, so it
+   is the one block in the spread that gets a rule down its left edge */
+.spread .easy-block { border-left: 2px solid var(--profit); padding-left: 12px; }
+
+.toggle.easy { color: var(--text); }
+.toggle.easy input { accent-color: var(--profit); }
+
+.order-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--hair);
+  border-bottom: 1px solid var(--hair);
+  margin-bottom: 14px;
+}
+.order-form .field { display: flex; flex-direction: column; gap: 5px; }
+
+button.primary {
+  font-family: var(--ui);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--profit);
+  border: 0;
+  border-radius: 0;
+  padding: 10px 16px;
+  cursor: pointer;
+  margin-bottom: 1px;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.primary:disabled { opacity: 0.55; cursor: default; filter: none; }
+
+.form-msg { font-size: 12.5px; margin: 10px 0 0; line-height: 1.6; }
+.form-msg.bad { color: var(--loss); }
+.form-msg.good { color: var(--profit); }
+
+.order-book { border-bottom: 1px solid var(--hair); }
+
+.order-head,
+.order-row {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.5fr)   /* item           */
+    112px                  /* order price    */
+    74px                   /* wants          */
+    116px                  /* materials cost */
+    116px                  /* profit/craft   */
+    122px                  /* filling it pays*/
+    66px                   /* crafts         */
+    62px                   /* age            */
+    68px;                  /* forget         */
+  align-items: center;
+  gap: 10px;
+}
+
+.order-head {
+  height: 34px;
+  border-bottom: 1px solid var(--hair-2);
+  font-size: 11px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.order-head span:not(:first-child) { text-align: right; }
+
+.order-row {
+  min-height: var(--row-h);
+  border-bottom: 1px solid var(--hair);
+  font-size: 13.5px;
+}
+.order-row:hover { background: var(--panel); }
+.order-row.easy { box-shadow: inset 3px 0 0 var(--profit); }
+
+.order-row .num, .order-row .age { text-align: right; font-size: 13px; }
+.order-row .item { display: flex; align-items: baseline; gap: 2px; min-width: 0; }
+.order-row .item a { border-bottom: 1px solid transparent; white-space: nowrap; }
+.order-row .item a:hover { border-bottom-color: var(--profit); }
+.order-row .who {
+  color: var(--muted-dim);
+  font-size: 11px;
+  font-family: var(--mono);
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.order-row .profit.up { color: var(--profit); }
+.order-row .profit.down { color: var(--loss); }
+.order-row .profit.muted, .order-row .age.muted { color: var(--muted-dim); }
+.order-row .age.stale { color: var(--loss); }
+
+button.drop {
+  font-family: var(--ui);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-dim);
+  background: none;
+  border: 1px solid var(--hair-2);
+  border-radius: 0;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+button.drop:hover { color: var(--loss); border-color: var(--loss); }
+
+.footnote {
+  font-size: 12.5px;
+  color: var(--muted-dim);
+  line-height: 1.7;
+  margin: 14px 0 0;
+  max-width: 82ch;
+}
+
+.panel.easy-panel { border-left: 2px solid var(--profit); }
+
+@media (max-width: 720px) {
+  .order-head { display: none; }
+  .order-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+    padding: 10px 0;
+    align-items: baseline;
+  }
+  .order-row .item { grid-column: 1 / -1; }
+  .order-row .num, .order-row .age { text-align: left; }
+  .order-row button.drop { grid-column: 1 / -1; justify-self: start; }
+  .order-form .field, .order-form .field.grow { flex: 1 1 130px; }
+  .order-form button.primary { flex: 1 1 100%; }
+}

@@ -133,6 +133,7 @@ def compute_flip(
     sell_prices: Any = None,
     index_age: float | None = None,
     index_ttl: float = 600.0,
+    orders: Any = None,
 ) -> dict[str, Any] | None:
     """Cost, value and rank one recipe. None when it cannot be priced."""
     costs: list[dict[str, Any]] = []
@@ -159,8 +160,7 @@ def compute_flip(
     # The fixed /sell payout: the server's base price times your own multiplier for
     # that item. It is the one exit that needs no other player, and because the
     # server does not publish the base prices, an item with no entry in the table
-    # gets None rather than a guess. /sell also routes to a matching order when one
-    # pays more, but order data is retired upstream, so there is nothing to compare.
+    # gets None rather than a guess.
     sell = sell_prices.lookup(recipe["output"]["item"]) if sell_prices is not None else None
     sell_unit = sell["payout"] if sell else None
     sell_revenue = round(sell_unit * out["count"], 4) if sell_unit else None
@@ -176,6 +176,34 @@ def compute_flip(
     dump_fee = round(dump_revenue * fee_percent / 100.0, 4) if dump_revenue else None
     dump_profit = (
         round(dump_revenue - cost - (dump_fee or 0.0), 4) if dump_revenue is not None else None
+    )
+
+    # A player's buy order -- someone offering to pay a price for a quantity right
+    # now. /sell fills one when it beats the server's own base price, so this is
+    # the best exit a craft can have: no listing to wait on, no buyer to find. It
+    # is the one number here the operator has to supply, because no public feed
+    # carries it (see app/orders.py for what was ruled out).
+    order = orders.lookup(recipe["output"]["item"]) if orders is not None else None
+    order_unit = (order or {}).get("unitPrice")
+    order_revenue = round(order_unit * out["count"], 4) if order_unit else None
+    order_fee = round(order_revenue * fee_percent / 100.0, 4) if order_revenue else None
+    order_profit = (
+        round(order_revenue - cost - (order_fee or 0.0), 4) if order_revenue is not None else None
+    )
+    # How many crafts the order can absorb before it is filled. A 64-item order for
+    # an item that crafts 4 at a time is 16 crafts, not 64.
+    order_fillable = int(order["quantity"] // out["count"]) if order and out["count"] else None
+    order_stale = bool((order or {}).get("stale"))
+    # Easy money: an order that pays more than the materials cost, for an item
+    # whose materials are all buyable right now, that somebody has actually seen
+    # recently. All three have to hold -- a stale order is not a buyer, and an
+    # unbuyable material makes the cost a guess.
+    easy_money = bool(
+        order_profit is not None
+        and order_profit > 0
+        and not order_stale
+        and len(listed) == len(costs)
+        and (order_fillable or 0) >= 1
     )
 
     flip: dict[str, Any] = {
@@ -210,6 +238,28 @@ def compute_flip(
         "dumpBasis": getattr(sales, "basis", None) if dump_unit else None,
         "dumpSales": out["dumpSales"],
         "dumpLastAt": out["dumpLastAt"],
+        # a player's buy order, when one has been recorded for this item
+        "orderUnitPrice": order_unit,
+        "orderQuantity": (order or {}).get("quantity"),
+        "orderBuyer": (order or {}).get("buyer"),
+        "orderNote": (order or {}).get("note"),
+        "orderSeenAt": (order or {}).get("seenAt"),
+        "orderAgeSeconds": (order or {}).get("ageSeconds"),
+        "orderStale": order_stale,
+        "orderRevenue": order_revenue,
+        "orderFee": order_fee,
+        "orderProfit": order_profit,
+        "orderMargin": (order_profit / cost) if order_profit is not None else None,
+        # how many crafts the order absorbs, and what filling all of them pays
+        "orderFillable": order_fillable,
+        "orderTotalProfit": (
+            round(order_profit * order_fillable, 4)
+            if order_profit is not None and order_fillable
+            else None
+        ),
+        # the headline: an order that pays more than the materials cost, for an item
+        # you can buy the materials for right now
+        "easyMoney": easy_money,
         # true when a material had no live listing and its market value stood in
         "estimated": len(listed) < len(costs),
         # every material is buyable right now, so this flip can actually be executed
@@ -243,6 +293,14 @@ SORTS = {
     "dumpProfit": lambda f: (
         f["dumpProfit"] if f["dumpProfit"] is not None else float("-inf")
     ),
+    # and for rows with no recorded buy order
+    "orderProfit": lambda f: (
+        f["orderProfit"] if f["orderProfit"] is not None else float("-inf")
+    ),
+    # what filling the whole order pays, not just one craft
+    "orderTotalProfit": lambda f: (
+        f["orderTotalProfit"] if f["orderTotalProfit"] is not None else float("-inf")
+    ),
 }
 
 
@@ -257,6 +315,7 @@ class FlipTable:
         ttl: float = 30.0,
         sales: Any = None,
         sell_prices: Any = None,
+        orders: Any = None,
     ):
         self.market = market
         self.recipes = recipes
@@ -264,11 +323,13 @@ class FlipTable:
         self.ttl = ttl
         self.sales = sales
         self.sell_prices = sell_prices
+        self.orders = orders
         self._rows: list[dict[str, Any]] | None = None
         self._built_at: float | None = None
         self._index_built_at: float | None = None
         self._sales_revision: int | None = None
         self._sell_revision: int | None = None
+        self._orders_revision: int | None = None
         self._lock = asyncio.Lock()
 
     def _is_fresh(self) -> bool:
@@ -286,7 +347,10 @@ class FlipTable:
         if self._sales_revision != getattr(self.sales, "revision", 0):
             return False
         # same for the /sell price table: an edit to it should show up immediately
-        return self._sell_revision == getattr(self.sell_prices, "revision", 0)
+        if self._sell_revision != getattr(self.sell_prices, "revision", 0):
+            return False
+        # and for the order book, so a recorded order lands in the table at once
+        return self._orders_revision == getattr(self.orders, "revision", 0)
 
     async def rows(self) -> list[dict[str, Any]]:
         if self._is_fresh():
@@ -305,6 +369,7 @@ class FlipTable:
                     self.sell_prices,
                     age,
                     ttl,
+                    self.orders,
                 )
                 for r in self.recipes
             )
@@ -314,6 +379,7 @@ class FlipTable:
             self._index_built_at = self.market.built_at
             self._sales_revision = getattr(self.sales, "revision", 0)
             self._sell_revision = getattr(self.sell_prices, "revision", 0)
+            self._orders_revision = getattr(self.orders, "revision", 0)
             return built
 
     @staticmethod
@@ -341,9 +407,14 @@ class FlipTable:
         return list(best.values())
 
     def stats(self) -> dict[str, Any]:
+        rows = self._rows or []
         return {
             "recipesConsidered": len(self.recipes),
-            "flipsFound": len(self._rows or []),
+            "flipsFound": len(rows),
+            # the headline count: orders that pay more than the materials cost, for
+            # an item whose materials are buyable right now
+            "easyMoneyFound": sum(1 for r in rows if r["easyMoney"]),
+            "ordersPriced": sum(1 for r in rows if r["orderUnitPrice"]),
             "computedAt": (
                 None
                 if self._built_at is None
@@ -361,20 +432,30 @@ class FlipTable:
         sort: str = "profit",
         limit: int = 100,
         profitable_only: bool = True,
+        orders_only: bool = False,
+        easy_money_only: bool = False,
     ) -> list[dict[str, Any]]:
         rows = await self.rows()
         out = rows
         if q:
             needle = q.strip().lower().replace(" ", "_")
             out = [r for r in out if needle in r["item"]]
+        if orders_only:
+            out = [r for r in out if r["orderUnitPrice"]]
+        if easy_money_only:
+            out = [r for r in out if r["easyMoney"]]
         if min_profit is not None:
             out = [r for r in out if r["profit"] >= min_profit]
         if min_margin is not None:
             out = [r for r in out if r["margin"] >= min_margin]
         if min_confidence is not None:
             out = [r for r in out if r["confidence"] >= min_confidence]
-        if profitable_only and min_profit is None:
-            out = [r for r in out if r["profit"] > 0]
+        # `profitableOnly` gates on the auction profit, which is the wrong gate once
+        # you are looking at orders -- there the question is what the order pays. An
+        # easy-money row is kept whatever the auction profit says, because an order
+        # that beats the materials cost is the whole point of looking.
+        if profitable_only and min_profit is None and not (orders_only or easy_money_only):
+            out = [r for r in out if r["profit"] > 0 or r["easyMoney"]]
         key = SORTS.get(sort, SORTS["profit"])
         reverse = sort != "item"
         return sorted(out, key=key, reverse=reverse)[: max(1, min(limit, 500))]

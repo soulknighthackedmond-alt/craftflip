@@ -13,16 +13,29 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
 - `app/sales.py` — the completed-sales index behind the market-dump column.
 - `app/sellprices.py` — the fixed `/sell` price table, merged from the image copy and a
   volume copy, reloaded on mtime change.
+- `app/orders.py` — the player-order book (the instasell side `/sell` routes into).
+  Same two-file merge as `sellprices.py`, plus writes: `/api/orders` records into the
+  volume copy. Orders carry a seen-at time and expire.
 - `app/confidence.py` — the per-row 0-100 confidence score and its factor breakdown.
 - `app/history.py` — flip history as JSONL, degrades silently.
 - `app/main.py` — API + SPA host. `web/` is Vite + React + TS, no UI kit.
 - `data/sell_prices.json` — the committed `/sell` base prices (bare numbers allowed).
+- `data/orders.json` — the committed order book (ships empty; there is no real data to
+  seed it with).
 - `tools/build_recipes.py` — generates `data/recipes.json` (committed).
 - `tools/local_check.py` — one live index refresh + the resulting table, no server.
 - `tools/verify_craftflip.py` — endpoint sweep against a running instance.
 - `tools/check_sell_side.py` — proves the `/sell` path and prints a full confidence breakdown.
 - `tools/check_live_sell.py` — same check against a running instance: the seeded `/sell`
   payouts, the confidence score, and the SPA asset content-type.
+- `tools/check_easy_money.py` — end-to-end proof of the order path against a running
+  instance (records a real order, checks the arithmetic, the flag, the filter, and the
+  stale case). **Point it at a throwaway `DATA_DIR`**, never the deployment: it writes.
+- `tools/diff_confidence_code.py` — scores the same live flips with the committed and
+  working-tree `confidence.py`, so a confidence change can be attributed to code rather
+  than to data drift (the index and sales state differ between runs, which moves scores
+  by ~10 points on its own).
+- `tools/probe_orders*.py` — the order-feed probes, kept as the evidence trail.
 
 ## Build / test / run
 
@@ -45,14 +58,29 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   a styled `displayName`. Always prefer the plain entry (`market.plain_entry`), or a
   cosmetic axe gets mistaken for the market price.
 - `displayName` is null in practice; prettify `itemName` instead.
-- There is **no public bid side**, so no real order-book "instasell" quote exists. Order
-  data is retired: donut.auction's `/orders` page says "Order data has been retired",
-  `/v1/orders/items/{id}/prices` is 404, `/v2/orders/search/` returns `{"items":[]}`,
-  and the official `api.donutsmp.net` has no order endpoint. The last live order-book
-  feed, `lootseller.io`, **retired on 2026-09-29** ("DonutSMP disabled its public API"),
-  and `donutsmp.finance/api/items` is a **frozen 2026-06-25 snapshot** — its
-  `/api/status` reports `running: false` and every order `t` is 2026-06-25T19:21Z, so
-  its `instantSellPrice` is ~100 days stale and must not be used as live.
+- **There is no public buy-order feed.** Orders are a real in-game mechanic (`/orders`,
+  `/order <search>`), and `/sell` routes to one when it beats the server base price, but
+  no service publishes them. All four checked live on 2026-10-03:
+  - `api.donut.auction/v2/orders/search/` **answers and validates its arguments** — it
+    requires a `query` and rejects a bad `sort` — but returns `{"orders":[],"nextCursor":null}`
+    for **every** query, including single letters, which would surface anything at all.
+    The site's own `/orders` page and its `/api` documentation both say the data was
+    retired. Do not mistake the live endpoint for a live book.
+  - `api.donutsmp.net` (official) publishes a Swagger spec at `/v1/doc.json` and `/v2/`:
+    **19 paths, none of them an order endpoint.** Its only auction schema is ask-side —
+    `ah.RequestBody` is `{search, sort}` over `lowest_price`, `highest_price`,
+    `recently_listed`, `last_listed`, and `api.Ah` is `{item, price, seller, time_left}`.
+    `/v1/auction/list/{page}` needs an API key generated in game with `/api`.
+  - DonutStats reads those same four official endpoints and nothing else.
+  - The community's answer is that orders are in-game only and reading them takes a
+    client mod, which is bannable.
+  Earlier dead ends, still worth not re-trying: `lootseller.io` **retired 2026-09-29**
+  ("DonutSMP disabled its public API"), and `donutsmp.finance/api/items` is a **frozen
+  2026-06-25 snapshot** (`/api/status` → `running: false`), so its `instantSellPrice` is
+  ~100 days stale.
+- The order book is therefore **operator-owned**: `data/orders.json` (seed) merged with
+  `$DATA_DIR/orders.json` (wins per item, and where `POST /api/orders` writes). No order
+  is ever invented — an item with no entry gets `null`, not a guess.
 - The fixed `/sell` payout is `server base price × the player's own per-item multiplier`
   (1.0×–3.0×, raised via `/sellmulti`). `/sell` also auto-routes to the best matching
   order when one pays more, but orders are retired so there is nothing to compare.
@@ -83,8 +111,30 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
 - `DONUT_FEE_PERCENT` defaults to 0 and no real DonutSMP fee figure is known; every
   profit figure is gross of any auction cut.
 - `instasell*` fields are the **fixed `/sell`** payout (server base × the player's own
-  multiplier); the previous median-of-sales number moved to `dump*`. Do not conflate
-  them: `/sell` needs no buyer, the dump does.
+  multiplier); the previous median-of-sales number moved to `dump*`, and a recorded
+  player order is `order*`. Do not conflate them: `/sell` and an order both need no
+  buyer (the order needs a *player* who already offered), the dump does. What `/sell`
+  actually pays is `max(order, serverBase)` — exposed as `bestExit` on the item
+  endpoint, and computed client-side from the two unit prices on the ledger row.
+- A recorded order is now the **strongest sell-side signal** in confidence: a live one
+  scores 0.85 on `sellBasis` (above the wiki's 0.9 base price only because it is a named
+  buyer at a known price rather than a multiplier-dependent server number), and a stale
+  one drops to 0.35. `_agreement` also cross-checks `index vs order` and `sales vs order`
+  whenever an order exists. This is guarded on `orderUnitPrice`, so a row with no order
+  scores exactly as it did before — verify with `tools/diff_confidence_code.py`, not by
+  comparing against a previously recorded number, because the index/sales state drifts
+  ~10 points between runs.
+- `easyMoney` requires **all three**: `orderProfit > 0`, every material has a live
+  listing, and the order is inside the TTL with `orderFillable >= 1`. An order wanting
+  fewer items than one craft produces cannot be filled by crafting, so it is not easy
+  money however good the price looks.
+- `profitableOnly` on `/api/crafts` keeps rows where `profit > 0` **or** `easyMoney` —
+  otherwise an easy-money flip whose auction margin is negative would be hidden, which
+  is exactly the row you cannot afford to miss. The SPA does the same in
+  `web/src/pages/LedgerPage.tsx`.
+- **`quantity: 0` must not be read as "unset".** `entry.get("quantity") or 1` silently
+  turns an order for nothing into an order for one. Check `is None` explicitly, in both
+  the parser and `OrderBook.put`.
 - Confidence (`app/confidence.py`) is a weighted blend — cost basis 34%, sell price 26%,
   agreement 16%, sales depth 12%, freshness 12% — and a row with any unlisted material
   is capped at 60% so an unexecutable flip can never read *high*. The cap appears as an
@@ -127,8 +177,15 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   `sellPricesLoaded`, only 3 of the 12 seeded items are craftable recipe outputs
   (`bamboo_block`, `bone_meal`, and `diamond` via a recipe), so the fixed-payout
   instasell column is mostly dashes by design — an item with no known base price gets
-  `null`, never a guess. Every row carries a confidence score (500/500 on the live
-  table). The item endpoint nests the arithmetic under `flip`, not at the top level.
+  `null`, never a guess. Every row carries a confidence score. The item endpoint nests
+  the arithmetic under `flip`, not at the top level.
+- The order book is live too (`ordersLoaded` in `/health`). It ships **empty** — there is
+  no data to seed it with and inventing some would defeat the point. `/api/orders` writes
+  to `$DATA_DIR/orders.json` on the `craftflip-data` volume, which is mounted at `/data`
+  while the seed lives at `/srv/data`, so a redeploy cannot clobber recorded orders.
+- `verify_craftflip.py` exercises the write path with a deliberately synthetic item
+  (`zz_craftflip_selfcheck`) and deletes it again, so a smoke test can never overwrite a
+  real order.
 
 ## Accuracy note (important when reading the table)
 

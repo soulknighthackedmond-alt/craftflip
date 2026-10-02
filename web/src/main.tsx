@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './Layout'
 import LedgerPage from './pages/LedgerPage'
 import ItemPage from './pages/ItemPage'
+import OrdersPage from './pages/OrdersPage'
 import './styles.css'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
@@ -12,6 +13,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<LedgerPage />} />
+          <Route path="orders" element={<OrdersPage />} />
           <Route path="item/:name" element={<ItemPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

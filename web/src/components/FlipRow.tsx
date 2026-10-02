@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type Flip, type Grid } from '../api'
-import { ageFrom, coins, coinsExact, pct, titleise } from '../format'
+import { ageFrom, ageSeconds, coins, coinsExact, pct, titleise } from '../format'
 import { Num } from '../hooks'
 import Confidence from './Confidence'
 import CraftGrid from './CraftGrid'
@@ -38,10 +38,11 @@ export default function FlipRow({ flip }: { flip: Flip }) {
   const up = flip.profit >= 0
   const sellUp = (flip.instasellProfit ?? 0) >= 0
   const dumpUp = (flip.dumpProfit ?? 0) >= 0
+  const orderUp = (flip.orderProfit ?? 0) >= 0
   const fee = flip.fee || 0
 
   return (
-    <div className={`flip ${open ? 'open' : ''}`}>
+    <div className={`flip ${open ? 'open' : ''} ${flip.easyMoney ? 'easy' : ''}`}>
       <button
         type="button"
         className="row"
@@ -61,6 +62,16 @@ export default function FlipRow({ flip }: { flip: Flip }) {
           {flip.alternates > 0 ? (
             <span className="est" title={`${flip.alternates} other recipe(s) produce this item`}>
               +{flip.alternates}
+            </span>
+          ) : null}
+          {flip.easyMoney ? (
+            <span
+              className="easy-tag"
+              title={`a recorded order pays ${coinsExact(
+                flip.orderUnitPrice ?? 0,
+              )} each — more than the ${coinsExact(flip.cost)} of materials — and every material is listed right now`}
+            >
+              easy
             </span>
           ) : null}
         </span>
@@ -94,6 +105,27 @@ export default function FlipRow({ flip }: { flip: Flip }) {
           score={flip.confidence}
           label={flip.confidenceLabel}
           factors={flip.confidenceFactors}
+        />
+        <Num
+          className={`order ${
+            flip.orderProfit === null ? 'muted' : flip.orderProfit >= 0 ? 'up' : 'down'
+          }`}
+          value={flip.orderProfit}
+          format={coins}
+          title={
+            flip.orderProfit === null
+              ? 'no player order recorded for this item — that is unknown, not zero'
+              : `someone is paying ${coinsExact(flip.orderUnitPrice ?? 0)} each` +
+                (flip.orderBuyer ? ` (${flip.orderBuyer})` : '') +
+                (flip.orderStale
+                  ? ` — but nobody has re-checked it in over ${Math.round(
+                      (flip.orderAgeSeconds ?? 0) / 3600,
+                    )}h, so treat it as gone`
+                  : '') +
+                ` — filling ${flip.orderFillable ?? 0} craft(s) pays ${coinsExact(
+                  flip.orderTotalProfit ?? 0,
+                )}`
+          }
         />
         <span className="listed muted num" title={flip.listedAt ?? undefined}>
           {flip.listedNow === null ? '—' : coins(flip.listedNow)}
@@ -241,6 +273,72 @@ export default function FlipRow({ flip }: { flip: Flip }) {
                   <span className="v">{ageFrom(flip.dumpLastAt)} ago</span>
                 </div>
               ) : null}
+              <div className="mline">
+                <span className="k">
+                  Player order
+                  {flip.orderBuyer ? ` from ${flip.orderBuyer}` : ''}
+                </span>
+                <span className="v">
+                  {flip.orderUnitPrice === null
+                    ? 'none recorded for this item'
+                    : `${coinsExact(flip.orderUnitPrice)} each × ${flip.orderQuantity ?? 0}`}
+                </span>
+              </div>
+              {flip.orderUnitPrice !== null ? (
+                <>
+                  <div className="mline">
+                    <span className="k">
+                      Order age{' '}
+                      {flip.orderStale
+                        ? '— past the TTL, so not counted as easy money'
+                        : '— still inside the TTL'}
+                    </span>
+                    <span className="v">{ageSeconds(flip.orderAgeSeconds)}</span>
+                  </div>
+                  <div className="mline">
+                    <span className="k">
+                      Filling the order ({flip.orderFillable ?? 0} craft
+                      {(flip.orderFillable ?? 0) === 1 ? '' : 's'} of{' '}
+                      {flip.outputCount})
+                    </span>
+                    <span className="v">{coinsExact(flip.orderTotalProfit ?? 0)}</span>
+                  </div>
+                  <div className="mline">
+                    <span className="k">What /sell pays, once routed</span>
+                    <span className="v">
+                      {coinsExact(
+                        Math.max(
+                          ...[flip.orderUnitPrice, flip.instasellUnitPrice].filter(
+                            (v): v is number => v !== null && v !== undefined,
+                          ),
+                          0,
+                        ),
+                      )}{' '}
+                      each
+                      {flip.orderUnitPrice !== null &&
+                      (flip.instasellUnitPrice ?? 0) <= flip.orderUnitPrice
+                        ? ' (the order wins)'
+                        : ' (the server base wins)'}
+                    </span>
+                  </div>
+                </>
+              ) : null}
+              {flip.orderNote ? (
+                <div className="mline">
+                  <span className="k">Order note</span>
+                  <span className="v">{flip.orderNote}</span>
+                </div>
+              ) : null}
+              <div
+                className={`mline total ${
+                  flip.orderProfit === null ? '' : orderUp ? 'up' : 'down'
+                }`}
+              >
+                <span className="k">Profit per craft, filled into the order</span>
+                <span className="v">
+                  {flip.orderProfit === null ? '—' : coinsExact(flip.orderProfit)}
+                </span>
+              </div>
               <div className="mline">
                 <span className="k">Confidence</span>
                 <span className="v">

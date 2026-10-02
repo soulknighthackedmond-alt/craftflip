@@ -657,6 +657,297 @@ def test_sell_price_table_applies_a_per_item_multiplier():
         assert prices.payout("sand") == 300
 
 
+# ------------------------------------------------------------- the order side ----
+
+class StubOrders:
+    """Stand-in for OrderBook: item -> a recorded player buy order."""
+
+    def __init__(self, orders: dict[str, dict], ttl_hours: float = 24.0):
+        self.revision = 1
+        self._ttl = ttl_hours * 3600.0
+        self._orders = {}
+        for name, raw in orders.items():
+            age = raw.pop("ageSeconds", 0.0)
+            self._orders[name] = {
+                "item": name,
+                "unitPrice": raw.get("unitPrice"),
+                "quantity": raw.get("quantity", 1),
+                "buyer": raw.get("buyer"),
+                "note": raw.get("note"),
+                "seenAt": "2026-10-03T00:00:00Z",
+                "ageSeconds": age,
+                "ttlSeconds": self._ttl,
+                "stale": age > self._ttl,
+            }
+
+    def lookup(self, name):
+        return self._orders.get(name)
+
+
+def test_order_profit_is_the_order_price_minus_the_materials():
+    """A player offering more than the materials cost is the whole point of the book."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 900, "quantity": 64, "buyer": "someone"}}),
+    )
+    assert flip["orderUnitPrice"] == 900
+    assert flip["orderRevenue"] == 900
+    assert flip["orderProfit"] == 800
+    assert flip["orderBuyer"] == "someone"
+    assert flip["easyMoney"] is True
+
+
+def test_order_profit_scales_with_the_recipe_output_count():
+    """Four items per craft against an order priced per item is four times the revenue."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)], output_count=4),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 100, "quantity": 64}}),
+    )
+    assert flip["orderRevenue"] == 400
+    assert flip["orderProfit"] == 300
+    # 64 wanted, 4 per craft
+    assert flip["orderFillable"] == 16
+    assert flip["orderTotalProfit"] == 4800
+
+
+def test_order_is_none_when_nothing_is_recorded():
+    """No order is unknown, not zero -- the row must not claim a buyer exists."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(recipe([item("a", 1)]), market)
+    assert flip["orderUnitPrice"] is None
+    assert flip["orderProfit"] is None
+    assert flip["orderFillable"] is None
+    assert flip["easyMoney"] is False
+
+
+def test_order_losing_money_is_not_easy_money():
+    """An order below the materials cost is a real loss, and must not be flagged."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 50, "quantity": 8}}),
+    )
+    assert flip["orderProfit"] == -50
+    assert flip["easyMoney"] is False
+
+
+def test_a_stale_order_is_never_easy_money():
+    """A buyer can fill or withdraw an offer at any moment, so an old one is not a buyer."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 900, "quantity": 8, "ageSeconds": 40 * 3600}}),
+    )
+    assert flip["orderStale"] is True
+    # the arithmetic still stands -- it is the flag that changes
+    assert flip["orderProfit"] == 800
+    assert flip["easyMoney"] is False
+
+
+def test_easy_money_needs_a_material_you_can_actually_buy():
+    """An order that beats a costed estimate is not money if the inputs are not on sale."""
+    # 'a' has a market value but nobody is selling it, so the cost is an estimate
+    market = StubMarket({"a": entry(market_value=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 900, "quantity": 8}}),
+    )
+    assert flip["estimated"] is True
+    assert flip["actionable"] is False
+    assert flip["orderProfit"] is not None
+    assert flip["easyMoney"] is False
+
+
+def test_easy_money_needs_an_order_that_absorbs_a_whole_craft():
+    """An order wanting fewer items than one craft makes cannot be filled by crafting."""
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)], output_count=4),
+        market,
+        orders=StubOrders({"out": {"unitPrice": 100, "quantity": 2}}),
+    )
+    assert flip["orderFillable"] == 0
+    assert flip["easyMoney"] is False
+
+
+def test_order_takes_the_same_fee_as_every_other_exit():
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    flip = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        fee_percent=10.0,
+        orders=StubOrders({"out": {"unitPrice": 1000, "quantity": 4}}),
+    )
+    assert flip["orderFee"] == 100
+    assert flip["orderProfit"] == 800
+
+
+def test_order_sort_key_sinks_rows_without_one():
+    """Sorting by an order must not let a row with no order outrank a real one."""
+    assert SORTS["orderProfit"]({"orderProfit": None}) == float("-inf")
+    assert SORTS["orderTotalProfit"]({"orderTotalProfit": None}) == float("-inf")
+    assert SORTS["orderProfit"]({"orderProfit": -5}) == -5
+
+
+def test_a_live_order_raises_confidence_over_a_bare_sell_price():
+    """A named buyer at a known price is better evidence than the server's base."""
+    from app.confidence import score
+
+    market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
+    base = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 300}),
+    )
+    with_order = compute_flip(
+        recipe([item("a", 1)]),
+        market,
+        sales=StubSales({"out": 400}),
+        sell_prices=StubSellPrices({"out": 300}),
+        orders=StubOrders({"out": {"unitPrice": 400, "quantity": 64}}),
+    )
+    bare = score(base, base.get("sellPrice"), index_age=5, index_ttl=600)
+    scored = score(with_order, with_order.get("sellPrice"), index_age=5, index_ttl=600)
+    assert scored["confidence"] > bare["confidence"]
+    basis = [f for f in scored["confidenceFactors"] if f["key"] == "sellBasis"][0]
+    assert "live order" in basis["detail"]
+
+
+# --------------------------------------------------- the order book itself ----
+
+def test_order_book_merges_the_volume_copy_over_the_seed():
+    """An order recorded at runtime must survive a redeploy of the image."""
+    import json
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        live = os.path.join(tmp, "orders.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump({"orders": {"a": {"price": 10, "quantity": 1}}}, fh)
+        with open(live, "w", encoding="utf-8") as fh:
+            json.dump({"orders": {"a": {"price": 99, "quantity": 4}}}, fh)
+        book = OrderBook(path=live, seed_path=seed)
+        assert book.size() == 1
+        assert book.lookup("a")["unitPrice"] == 99
+        assert book.lookup("a")["quantity"] == 4
+
+
+def test_order_book_reads_a_list_and_a_bare_number():
+    import json
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump({"orders": [{"item": "a", "price": 5, "quantity": 2}, {"item": "b", "price": 7}]}, fh)
+        book = OrderBook(path=None, seed_path=seed)
+        assert book.lookup("a")["quantity"] == 2
+        assert book.lookup("b")["unitPrice"] == 7
+
+
+def test_order_book_derives_a_unit_price_from_a_total():
+    """In game the order can be quoted as a total; the book stores per item."""
+    import json
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump({"orders": [{"item": "a", "totalPrice": 640, "quantity": 64}]}, fh)
+        book = OrderBook(path=None, seed_path=seed)
+        assert book.lookup("a")["unitPrice"] == 10
+
+
+def test_order_book_rejects_junk_instead_of_guessing():
+    import json
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        seed = os.path.join(tmp, "seed.json")
+        with open(seed, "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "orders": [
+                        {"item": "noprice"},
+                        {"item": "zero", "price": 0},
+                        {"item": "negative", "price": -5},
+                        {"item": "badqty", "price": 10, "quantity": 0},
+                        {"price": 10},
+                    ]
+                },
+                fh,
+            )
+        book = OrderBook(path=None, seed_path=seed)
+        assert book.size() == 0
+        assert len(book.snapshot()["errors"]) == 5
+
+
+def test_order_book_write_then_read_round_trips():
+    """The write path is what the API uses, so it has to land where the read looks."""
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        live = os.path.join(tmp, "orders.json")
+        book = OrderBook(path=live, seed_path=None)
+        assert book.size() == 0
+        saved = book.put("netherite_ingot", 5_000_000, quantity=64, buyer="someone")
+        assert saved["unitPrice"] == 5_000_000
+        assert saved["quantity"] == 64
+        assert book.size() == 1
+        # a second book over the same file sees it, which is what a redeploy does
+        assert OrderBook(path=live, seed_path=None).lookup("netherite_ingot")["buyer"] == "someone"
+        assert book.drop("netherite_ingot") is True
+        assert book.size() == 0
+        assert book.drop("netherite_ingot") is False
+
+
+def test_order_book_normalises_the_item_name():
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        book = OrderBook(path=os.path.join(tmp, "orders.json"), seed_path=None)
+        book.put("Netherite Ingot", 10, quantity=1)
+        assert book.lookup("netherite_ingot") is not None
+        assert book.lookup("minecraft:netherite_ingot") is not None
+
+
+def test_order_book_write_rejects_a_bad_price():
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        book = OrderBook(path=os.path.join(tmp, "orders.json"), seed_path=None)
+        for bad in (0, -1):
+            try:
+                book.put("a", bad, quantity=1)
+            except ValueError:
+                continue
+            raise AssertionError(f"price {bad} should have been rejected")
+        assert book.size() == 0
+
+
 # ---------------------------------------------------------------- the runner ----
 
 def _run() -> int:

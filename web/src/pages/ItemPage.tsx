@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { type Detail, type HistoryResponse } from '../api'
 import CraftGrid from '../components/CraftGrid'
 import Confidence from '../components/Confidence'
@@ -191,6 +191,59 @@ export default function ItemPage() {
                         {flip.dumpProfit === null ? '—' : coinsExact(flip.dumpProfit)}
                       </span>
                     </div>
+                    <div className="mline">
+                      <span className="k">
+                        Player order
+                        {flip.orderBuyer ? ` from ${flip.orderBuyer}` : ''}
+                        {flip.orderUnitPrice !== null
+                          ? ` at ${coinsExact(flip.orderUnitPrice)} each × ${flip.orderQuantity}`
+                          : ''}
+                      </span>
+                      <span className="v">
+                        {flip.orderRevenue === null ? 'none recorded' : coinsExact(flip.orderRevenue)}
+                      </span>
+                    </div>
+                    {flip.orderUnitPrice !== null ? (
+                      <div className="mline">
+                        <span className="k">
+                          Order age
+                          {flip.orderStale ? ' — past the TTL' : ' — still live'}
+                        </span>
+                        <span className="v">{ageSeconds(flip.orderAgeSeconds)}</span>
+                      </div>
+                    ) : null}
+                    <div
+                      className={`mline total ${
+                        flip.orderProfit === null ? '' : flip.orderProfit >= 0 ? 'up' : 'down'
+                      }`}
+                    >
+                      <span className="k">Profit filling the order</span>
+                      <span className="v">
+                        {flip.orderProfit === null ? '—' : coinsExact(flip.orderProfit)}
+                      </span>
+                    </div>
+                    {flip.orderFillable ? (
+                      <div className="mline">
+                        <span className="k">
+                          Filling all of it ({flip.orderFillable} craft
+                          {flip.orderFillable === 1 ? '' : 's'})
+                        </span>
+                        <span className="v">{coinsExact(flip.orderTotalProfit ?? 0)}</span>
+                      </div>
+                    ) : null}
+                    <div className="mline">
+                      <span className="k">What /sell actually pays</span>
+                      <span className="v">
+                        {d.bestExit?.effective == null
+                          ? 'nothing known for this item'
+                          : `${coinsExact(d.bestExit.effective)} each — ${
+                              d.bestExit.order !== null &&
+                              d.bestExit.order >= (d.bestExit.serverSell ?? 0)
+                                ? 'the order wins'
+                                : 'the server base wins'
+                            }`}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -334,6 +387,59 @@ export default function ItemPage() {
                 </p>
               )}
             </div>
+
+            {flip ? (
+              <div className={`panel ${flip.easyMoney ? 'easy-panel' : ''}`}>
+                <h4>Player order{flip.easyMoney ? ' — easy money' : ''}</h4>
+                {flip.orderUnitPrice !== null ? (
+                  <>
+                    <div className="ledger-math">
+                      <div className="mline">
+                        <span className="k">Offering, per item</span>
+                        <span className="v">{coinsExact(flip.orderUnitPrice)}</span>
+                      </div>
+                      <div className="mline">
+                        <span className="k">Wants</span>
+                        <span className="v">{count(flip.orderQuantity ?? 0)}</span>
+                      </div>
+                      <div className="mline">
+                        <span className="k">Buyer</span>
+                        <span className="v">{flip.orderBuyer ?? 'not recorded'}</span>
+                      </div>
+                      <div className="mline">
+                        <span className="k">Seen</span>
+                        <span className="v">
+                          {flip.orderSeenAt
+                            ? `${ageFrom(flip.orderSeenAt)} ago`
+                            : 'time not recorded'}
+                        </span>
+                      </div>
+                      <div className="mline total up">
+                        <span className="k">Filling it pays</span>
+                        <span className="v">{coinsExact(flip.orderTotalProfit ?? 0)}</span>
+                      </div>
+                    </div>
+                    {flip.orderStale ? (
+                      <p className="panel-note">
+                        Past the {Math.round((flip.orderAgeSeconds ?? 0) / 3600)}h mark since it
+                        was seen. A buyer can fill or withdraw an offer at any moment, so this is
+                        shown but not counted as easy money — check <code>/orders</code> before
+                        crafting against it.
+                      </p>
+                    ) : null}
+                    {flip.orderNote ? <p className="panel-note">{flip.orderNote}</p> : null}
+                  </>
+                ) : (
+                  <p className="panel-note">
+                    No order recorded for this item. There is no public feed for DonutSMP buy
+                    orders — donut.auction retired its order mirror and the official API has no
+                    order endpoint — so craftflip cannot look one up. Run <code>/orders</code> in
+                    game and <Link to="/orders">record what it shows</Link>; this flip is then
+                    costed against it.
+                  </p>
+                )}
+              </div>
+            ) : null}
 
             {flip ? (
               <div className="panel">
