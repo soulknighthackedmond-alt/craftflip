@@ -62,6 +62,9 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   `python -c "..."` argument truncates it — keep `-c` scripts on one line.
 - `DONUT_FEE_PERCENT` defaults to 0 and no real DonutSMP fee figure is known; every
   profit figure is gross of any auction cut.
+- The sell-side (instasell) price is the **median** of the recent sales, not the lowest:
+  thin markets carry outlier dumps (`waxed_weathered_chiseled_copper` has one at 6,250
+  against a 2.4M index) that would otherwise swing a whole item's number.
 - The flip table's cache compares `SalesIndex.revision`, not `last_pass`. `last_pass`
   stays `None` until a whole sales pass finishes, so a table built before any sales
   data existed looked permanently fresh and every instasell cell read `null`.

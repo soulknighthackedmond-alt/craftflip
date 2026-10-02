@@ -59,7 +59,7 @@ export default function LedgerPage() {
       (best, f) => (best === null || f.profit > best.profit ? f : best),
       null,
     )
-    // instasell: a row only counts when it still profits at the lowest price the
+    // instasell: a row only counts when it still profits at the median price the
     // output has actually sold for recently -- no estimate, no waiting for a buyer
     const instasold = profitable.filter((f) => (f.instasellProfit ?? 0) > 0)
     const instasoldBest = instasold.reduce<Flip | null>(
@@ -138,7 +138,7 @@ export default function LedgerPage() {
                 <Link to={`/item/${spread.instasoldBest.item}`}>
                   {titleise(spread.instasoldBest.item)}
                 </Link>{' '}
-                — {coinsExact(spread.instasoldBest.instasellProfit ?? 0)} at the lowest recent
+                — {coinsExact(spread.instasoldBest.instasellProfit ?? 0)} at the median recent
                 sale
               </>
             ) : (
@@ -198,7 +198,7 @@ export default function LedgerPage() {
         </label>
         <label
           className="toggle"
-          title="only flips that still profit at the lowest price the output has actually sold for recently"
+          title="only flips that still profit at the median price the output has actually sold for recently"
         >
           <input
             type="checkbox"

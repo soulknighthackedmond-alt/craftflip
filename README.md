@@ -67,7 +67,7 @@ margin  = profit / cost
 ### The sell side (instasell)
 
 ```
-instasell price   = lowest price the output has actually sold for recently
+instasell price   = median price the output has actually sold for recently
 instasell revenue = instasell price × output count
 instasell profit  = instasell revenue − cost − fee
 ```

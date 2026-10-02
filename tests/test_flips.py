@@ -321,35 +321,35 @@ def test_summarise_sales_ignores_unpriced_rows():
 # ----------------------------------------------------------------- instasell ----
 
 class StubSales:
-    """Stand-in for SalesIndex: item -> lowest price it recently sold at."""
+    """Stand-in for SalesIndex: item -> median price it recently sold at."""
 
-    def __init__(self, lows: dict[str, float]):
-        self.basis = "lowest of recent sales"
-        self._lows = lows
+    def __init__(self, medians: dict[str, float]):
+        self.basis = "median of recent sales"
+        self._medians = medians
 
     def entry(self, name):
-        low = self._lows.get(name)
-        if low is None:
+        median = self._medians.get(name)
+        if median is None:
             return None
         return {
-            "low": low,
-            "median": low * 1.2,
-            "high": low * 2.0,
+            "low": median * 0.5,
+            "median": median,
+            "high": median * 2.0,
             "sales": 3,
             "lastAt": "2026-10-01T00:00:00Z",
         }
 
     def price(self, name):
-        return self._lows.get(name)
+        return self._medians.get(name)
 
 
-def test_instasell_profit_uses_the_lowest_recent_sale():
+def test_instasell_profit_uses_the_median_recent_sale():
     market = StubMarket({"a": entry(listing=100), "out": entry(market_value=500)})
     flip = compute_flip(recipe([item("a", 1)], output_count=2), market, sales=StubSales({"out": 400}))
     assert flip["instasellUnitPrice"] == 400
     assert flip["instasellRevenue"] == 800
     assert flip["instasellProfit"] == 700  # 800 - 100
-    assert flip["instasellBasis"] == "lowest of recent sales"
+    assert flip["instasellBasis"] == "median of recent sales"
     assert flip["instasellSales"] == 3
     assert flip["instasellLastAt"] == "2026-10-01T00:00:00Z"
 

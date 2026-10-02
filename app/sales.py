@@ -22,11 +22,10 @@ from .donut import UpstreamError, sale_row, summarise_sales
 
 log = logging.getLogger("craftflip.sales")
 
-# The dump price is the bottom of the recent range: undercutting to the lowest
-# price the item has recently cleared at is what makes a sale happen now. It is
-# deliberately pessimistic -- a flip that only works at the median is a flip that
-# needs a buyer to turn up.
-BASIS = "lowest of recent sales"
+# The dump price is the middle of the recent range, not its floor: a single
+# outlier dump (waxed_weathered_chiseled_copper has one at 6,250 against a 2.4M
+# index) would otherwise produce a nonsense number for the whole item.
+BASIS = "median of recent sales"
 
 
 class SalesIndex:
@@ -72,7 +71,7 @@ class SalesIndex:
 
     def price(self, name: str) -> float | None:
         entry = self.entry(name)
-        return (entry or {}).get("low") or None
+        return (entry or {}).get("median") or None
 
     def size(self) -> int:
         return sum(1 for name in self._entries if self._fresh(name))

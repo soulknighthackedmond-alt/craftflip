@@ -101,7 +101,7 @@ def value_output(
         return None
     count = int(output.get("count") or 1)
     sold = sales.entry(name) if sales is not None else None
-    dump = (sold or {}).get("low")
+    dump = (sold or {}).get("median")
     return {
         "item": name,
         "displayName": entry.get("displayName") or prettify(name),
