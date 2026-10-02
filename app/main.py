@@ -28,22 +28,27 @@ state: dict[str, Any] = {}
 
 
 async def _history_loop() -> None:
-    """Append the top flips once per index refresh."""
+    """Record the top flips: once as soon as the first index exists, then once per
+    refresh. Without the initial wait-then-write the first point would not land
+    until a whole TTL had passed, so a fresh deploy showed an empty history."""
     market: Market = state["market"]
     table: FlipTable = state["table"]
     history: FlipHistory = state["history"]
+
+    while market.built_at is None:
+        await asyncio.sleep(5)
+
     while True:
         try:
-            await asyncio.sleep(config.INDEX_TTL_SECONDS)
-            if market.built_at is None:
-                continue
-            rows = await table.rows()
-            history.append(rows, config.DONUT_FEE_PERCENT)
-            history.prune()
+            if market.built_at is not None:
+                rows = await table.rows()
+                history.append(rows, config.DONUT_FEE_PERCENT)
+                history.prune()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             log.warning("history loop: %s", exc)
+        await asyncio.sleep(config.INDEX_TTL_SECONDS)
 
 
 @asynccontextmanager

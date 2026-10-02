@@ -90,13 +90,31 @@ def main() -> int:
             flip = detail.get("flip") or {}
             grid = detail.get("grid") or {}
             cells = grid.get("cells") or []
+            slots = grid.get("slots") or []
+            placed = sum(1 for r in cells for c in r if c) or len(slots)
             print(f"     detail {top_item}: craftable={detail.get('craftable')} "
+                  f"type={detail.get('recipeType')} "
                   f"ingredients={len(flip.get('ingredients', []))} "
-                  f"gridCells={sum(1 for r in cells for c in r if c)} "
-                  f"sales={len(detail.get('recentSales') or [])}")
+                  f"placedCells={placed} sales={len(detail.get('recentSales') or [])}")
             if not flip:
                 FAILED.append(f"top item {top_item} has no flip on its detail page")
+            if not placed:
+                FAILED.append(f"{top_item} detail page rendered no priced cells")
         call(base, f"/api/crafts/{top_item}/history")
+
+    # the plan's hand-check: netherite ingot is 4 scrap + 4 gold
+    ni = call(base, "/api/crafts/netherite_ingot")
+    if ni and ni.get("flip"):
+        f = ni["flip"]
+        print(f"     netherite_ingot via {f['recipeId']} "
+              f"({f['recipeType']}, x{f['outputCount']}):")
+        for ing in f["ingredients"]:
+            print(f"       {ing['count']}x {ing['item']:<18} @ {ing['unitPrice']:>12,.0f} "
+                  f"= {ing['subtotal']:>13,.0f}  ({ing['source']})")
+        print(f"       cost {f['cost']:,.0f}  sells for {f['revenue']:,.0f}  "
+              f"profit {f['profit']:,.0f}")
+    else:
+        print("     netherite_ingot: not costable in this run")
 
     # the SPA
     html = call(base, "/", accept="text/html")

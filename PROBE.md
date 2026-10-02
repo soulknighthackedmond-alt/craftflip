@@ -135,13 +135,18 @@ Because search is substring but capped at 25, and tickers covers only 45 items:
 3. **Tickers first, one free call.** `/v2/tickers/` seeds live listing prices for the
    hot items at no cost; anything it covers needs no listing lookup.
 4. **Greedy token sweep before per-name fallback.** Since matching is substring, one
-   query covers every needed name containing that substring. Group the needed names
-   by shared token, query the tokens that cover the most names first, and drop what
-   is already covered. Only names still uncovered get their own request. This keeps a
-   full refresh well under one request per item.
-5. **Paced and cached.** Requests spaced 250 ms behind a single-flight lock, index
-   cached for `INDEX_TTL_SECONDS` (default 300), last good index retained on upstream
+   query covers every needed name containing that substring — `white`, `black`,
+   `iron`, `ingot`, `stairs`, `trapdoor` each resolve dozens of names per request.
+   Query the tokens that cover the most names first and drop what is already
+   covered; only names still uncovered get their own request.
+5. **Outputs last, and only the reachable ones.** A recipe's output price is only
+   queried once every one of its materials is priced. A recipe that already cannot
+   be costed has no use for its output's price, which is what keeps a 1016-recipe
+   dataset from becoming 875 extra lookups.
+6. **Paced and cached.** Requests spaced 250 ms behind a single-flight lock, index
+   cached for `INDEX_TTL_SECONDS` (default 600), last good index retained on upstream
    error with `upstreamOk=false` rather than emptying the table.
 
 The 25-cap means a query is never assumed to have returned everything it could match;
 coverage is tracked explicitly and anything missing falls through to the next stage.
+Measured: 397 priced items from 120 requests, and 253 flips from the full recipe set.
