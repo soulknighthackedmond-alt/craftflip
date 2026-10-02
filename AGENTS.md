@@ -65,6 +65,11 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
 - The sell-side (instasell) price is the **median** of the recent sales, not the lowest:
   thin markets carry outlier dumps (`waxed_weathered_chiseled_copper` has one at 6,250
   against a 2.4M index) that would otherwise swing a whole item's number.
+- That feed is **bimodal** for craftables: bulk stack sales clear at a much lower unit
+  price than one-offs. `blue_stained_glass_pane` sells as 64-stacks at ~2–13k/unit and as
+  singles at 78k–100k, so its median (~45k) sits between two prices that both really
+  happen. `stone_slab` is the clean case — every sale is a 64-stack at ~2,187/unit and
+  the index agrees at 2,169. Treat the instasell column as an estimate, not a quote.
 - The flip table's cache compares `SalesIndex.revision`, not `last_pass`. `last_pass`
   stays `None` until a whole sales pass finishes, so a table built before any sales
   data existed looked permanently fresh and every instasell cell read `null`.
