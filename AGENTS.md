@@ -48,3 +48,34 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   `python -c "..."` argument truncates it — keep `-c` scripts on one line.
 - `DONUT_FEE_PERCENT` defaults to 0 and no real DonutSMP fee figure is known; every
   profit figure is gross of any auction cut.
+
+## Deployment (live as of 2026-10-02)
+
+- GitHub: `https://github.com/soulknighthackedmond-alt/craftflip`, public, branch
+  `master`. The requested org name `donutflip` is **permanently unavailable** — it is
+  an existing personal user account, and GitHub shares one namespace between users and
+  orgs, so no org can take that name. GitHub also has no API to create an org (UI
+  only). Transferable to a real org later in one click.
+- Coolify: project `craftflip` (`imj9vt172y7oinyorkrza0hd`), application `craftflip`
+  (`f5gpz4htd346gclmagaa1d11`), server `localhost` = the panel box 192.168.50.60,
+  `build_pack=dockerfile`, `ports_mappings=8789:8789`, domain
+  `http://flips.192.168.50.60.sslip.io`. Panel: `http://192.168.50.60:8000/api/v1`.
+- Deploy = push to `master` then `POST /deploy {"uuid": ...}`. Coolify clones from
+  GitHub, so nothing can deploy before the branch exists.
+- `POST /applications/public` returns a **null `fqdn`** even when `domains` was
+  accepted; read the application back to get the real value. `POST /projects` returns
+  only `{"uuid": ...}` with no `name` field.
+
+## Accuracy note (important when reading the table)
+
+The ranked table is dominated by **estimated** rows. On a full-budget index
+(988/1035 priced, 805 flips) only ~15 of 587 sampled rows had `actionable=true`
+(every material backed by a live listing); the highest-profit rows — the waxed
+copper blocks and hanging signs — are all `estimated=true`, costed from market value
+because nobody is selling the input. Always check the `actionable` flag / the
+**buyable now** filter (client-side, `web/src/pages/LedgerPage.tsx`) before treating a
+margin as a real flip.
+- `/api/crafts` has **no `offset`** and rejects `limit=1000` with 422 (max 500), so the
+  full table cannot be paged from the API; union `sort=profit` and `sort=margin` to
+  widen a sample.
+
