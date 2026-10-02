@@ -21,6 +21,8 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
 - `tools/local_check.py` — one live index refresh + the resulting table, no server.
 - `tools/verify_craftflip.py` — endpoint sweep against a running instance.
 - `tools/check_sell_side.py` — proves the `/sell` path and prints a full confidence breakdown.
+- `tools/check_live_sell.py` — same check against a running instance: the seeded `/sell`
+  payouts, the confidence score, and the SPA asset content-type.
 
 ## Build / test / run
 
@@ -121,6 +123,12 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
 - `POST /applications/public` returns a **null `fqdn`** even when `domains` was
   accepted; read the application back to get the real value. `POST /projects` returns
   only `{"uuid": ...}` with no `name` field.
+- The `/sell` side is live and verified on the deployment: `/health` reports
+  `sellPricesLoaded`, only 3 of the 12 seeded items are craftable recipe outputs
+  (`bamboo_block`, `bone_meal`, and `diamond` via a recipe), so the fixed-payout
+  instasell column is mostly dashes by design — an item with no known base price gets
+  `null`, never a guess. Every row carries a confidence score (500/500 on the live
+  table). The item endpoint nests the arithmetic under `flip`, not at the top level.
 
 ## Accuracy note (important when reading the table)
 
