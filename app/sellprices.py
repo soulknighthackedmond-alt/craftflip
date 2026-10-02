@@ -47,6 +47,7 @@ class SellPrices:
         self._items: dict[str, dict[str, Any]] = {}
         self._multiplier = self.default_multiplier
         self._stamps: dict[str, float] = {}
+        self._loaded = False
         self._errors: list[str] = []
         self.revision = 0
         self.reload()
@@ -101,11 +102,17 @@ class SellPrices:
         return out
 
     def reload(self) -> bool:
-        """Re-read both files. Returns True when anything actually changed."""
+        """Re-read both files. Returns True when anything actually changed.
+
+        The guard keys off an explicit `_loaded` flag rather than the table being
+        non-empty: an empty table is a stable state, and testing its truthiness
+        would re-read and bump `revision` on every call, making the flip table look
+        permanently stale.
+        """
         stamps: dict[str, float] = {}
         for label, p in (("seed", self.seed_path), ("table", self.path)):
             stamps[label] = p.stat().st_mtime if p and p.exists() else 0.0
-        if stamps == self._stamps and self._items:
+        if self._loaded and stamps == self._stamps:
             return False
 
         errors: list[str] = []
@@ -131,6 +138,7 @@ class SellPrices:
         self._items = merged
         self._multiplier = multiplier if multiplier > 0 else self.default_multiplier
         self._stamps = stamps
+        self._loaded = True
         self._errors = errors
         self.revision += 1
         if errors:

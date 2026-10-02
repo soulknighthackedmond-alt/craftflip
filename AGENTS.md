@@ -132,6 +132,14 @@ process, deployed to Coolify alongside the phase-1 `donut-auction-api`.
   otherwise an easy-money flip whose auction margin is negative would be hidden, which
   is exactly the row you cannot afford to miss. The SPA does the same in
   `web/src/pages/LedgerPage.tsx`.
+- **A "reload when the files change" guard must not test the loaded data's
+  truthiness.** `if stamps == self._stamps and self._items:` looks fine until the table
+  is *empty* — then `self._items` is falsy, the guard never holds, and every read
+  re-reads the file and bumps `revision`. `FlipTable._is_fresh` compares against that
+  revision, so an empty order book made the flip table look permanently stale and
+  rebuild on every request. Both `OrderBook` and `SellPrices` now key off an explicit
+  `_loaded` flag. Regression tests: `test_an_empty_*_stops_bumping_its_revision`, and
+  `tools/check_book_revision.py` checks it on a running instance.
 - **`quantity: 0` must not be read as "unset".** `entry.get("quantity") or 1` silently
   turns an order for nothing into an order for one. Check `is None` explicitly, in both
   the parser and `OrderBook.put`.

@@ -107,6 +107,7 @@ class OrderBook:
         self._orders: dict[str, dict[str, Any]] = {}
         self._ttl_hours = self.default_ttl_hours
         self._stamps: dict[str, float] = {}
+        self._loaded = False
         self._errors: list[str] = []
         self._lock = threading.Lock()
         self.revision = 0
@@ -208,11 +209,18 @@ class OrderBook:
         return out
 
     def reload(self) -> bool:
-        """Re-read both files. Returns True when anything actually changed."""
+        """Re-read both files. Returns True when anything actually changed.
+
+        The guard keys off an explicit `_loaded` flag, not off the book being
+        non-empty: an empty book is a perfectly stable state, and testing its
+        truthiness would make it re-read and bump `revision` on every call -- which
+        in turn would make the flip table look permanently stale and rebuild on
+        every request.
+        """
         stamps: dict[str, float] = {}
         for label, p in (("seed", self.seed_path), ("book", self.path)):
             stamps[label] = p.stat().st_mtime if p and p.exists() else 0.0
-        if stamps == self._stamps and self._orders:
+        if self._loaded and stamps == self._stamps:
             return False
 
         errors: list[str] = []
@@ -239,6 +247,7 @@ class OrderBook:
         self._orders = merged
         self._ttl_hours = ttl_hours if ttl_hours > 0 else self.default_ttl_hours
         self._stamps = stamps
+        self._loaded = True
         self._errors = errors
         self.revision += 1
         for err in errors:

@@ -948,6 +948,48 @@ def test_order_book_write_rejects_a_bad_price():
         assert book.size() == 0
 
 
+def test_an_empty_order_book_stops_bumping_its_revision():
+    """An empty book is a stable state.
+
+    Guarding reload() on the book being non-empty made it re-read and bump `revision`
+    on every call, which made FlipTable._is_fresh always false and rebuilt the whole
+    table on every request. Regression test for that.
+    """
+    import tempfile
+
+    from app.orders import OrderBook
+
+    with tempfile.TemporaryDirectory() as tmp:
+        book = OrderBook(path=os.path.join(tmp, "orders.json"), seed_path=None)
+        assert book.size() == 0
+        first = book.revision
+        for _ in range(25):
+            book.refresh()
+        assert book.revision == first, "an empty book re-read and bumped revision"
+        # and a real write still bumps it, so the table notices
+        book.put("a", 10, quantity=1)
+        assert book.revision > first
+        after = book.revision
+        for _ in range(10):
+            book.refresh()
+        assert book.revision == after
+
+
+def test_an_empty_sell_price_table_stops_bumping_its_revision():
+    """Same guard, same bug, in the /sell table."""
+    import tempfile
+
+    from app.sellprices import SellPrices
+
+    with tempfile.TemporaryDirectory() as tmp:
+        table = SellPrices(path=os.path.join(tmp, "sell.json"), seed_path=None)
+        assert table.size() == 0
+        first = table.revision
+        for _ in range(25):
+            table.refresh()
+        assert table.revision == first, "an empty table re-read and bumped revision"
+
+
 # ---------------------------------------------------------------- the runner ----
 
 def _run() -> int:
